@@ -8,11 +8,27 @@ import 'package:material_ui/material_ui.dart';
 class FakeAppCleanerService extends AppCleanerService {
   final List<InstalledApp> mockApps;
   final List<OrphanLeftoverGroup> mockOrphans;
+  List<OperationLogEntry> savedHistory = [];
 
   FakeAppCleanerService({
     required this.mockApps,
     required this.mockOrphans,
   });
+
+  @override
+  Future<List<OperationLogEntry>> loadOperationHistory() async {
+    return List<OperationLogEntry>.from(savedHistory);
+  }
+
+  @override
+  Future<void> saveOperationHistory(List<OperationLogEntry> entries) async {
+    savedHistory = List<OperationLogEntry>.from(entries);
+  }
+
+  @override
+  Future<void> clearOperationHistory() async {
+    savedHistory = [];
+  }
 
   @override
   Future<List<InstalledApp>> scanInstalledApps({
@@ -185,6 +201,24 @@ End-Date: 2026-11-20  10:15:22
         isFalse,
       );
     });
+
+    test('Serializes and deserializes OperationLogEntry JSON cleanly', () {
+      final entry = OperationLogEntry(
+        timestamp: DateTime.utc(2026, 11, 23, 12, 30),
+        title: 'Uninstall App & Leftovers: BetterDisplay',
+        result: const CleanActionResult(
+          success: true,
+          deletedCount: 3,
+          freedBytes: 56 * 1024 * 1024,
+          deletedPaths: ['/Applications/BetterDisplay.app'],
+          summaryMessage: 'Uninstalled BetterDisplay.',
+        ),
+      );
+      final restored = OperationLogEntry.fromJson(entry.toJson());
+      expect(restored.title, entry.title);
+      expect(restored.result.freedBytes, 56 * 1024 * 1024);
+      expect(restored.result.deletedPaths, ['/Applications/BetterDisplay.app']);
+    });
   });
 
   testWidgets(
@@ -259,8 +293,24 @@ End-Date: 2026-11-20  10:15:22
       dataScanned: true,
     );
 
+    final selfApp = InstalledApp(
+      id: 'self:appcleaner',
+      name: 'AppCleaner',
+      identifier: 'com.yin.appcleaner',
+      version: '1.0.0',
+      publisher: 'Yin',
+      installPath: '/Applications/AppCleaner.app',
+      origin: AppOriginType.userInstalled,
+      installSource: InstallSource.appBundle,
+      platform: DesktopPlatformType.macos,
+      appSizeBytes: 22 * 1024 * 1024,
+      isSelfApp: true,
+      isRunning: true,
+      dataScanned: true,
+    );
+
     final fakeService = FakeAppCleanerService(
-      mockApps: [userApp, systemApp],
+      mockApps: [userApp, selfApp, systemApp],
       mockOrphans: [
         OrphanLeftoverGroup(
           id: 'com.old.uninstalled',
@@ -284,30 +334,47 @@ End-Date: 2026-11-20  10:15:22
     await tester.pumpWidget(AppCleanerApp(service: fakeService));
     await tester.pumpAndSettle();
 
-    // 1. Default filter is User Installed apps (1 user app, 1 system app)
-    expect(find.text('User Apps (1)'), findsOneWidget);
+    // 1. Default filter is User Installed apps (2 user apps including self, 1 system app)
+    expect(find.text('User Apps (2)'), findsOneWidget);
     expect(find.text('System Apps (1)'), findsOneWidget);
-    expect(find.text('TestStudio Pro'), findsWidgets);
+    expect(find.text('Self-Locked'), findsOneWidget);
+
+    // Select TestStudio Pro explicitly (since AppCleaner sorts alphabetically first)
+    await tester.tap(find.text('TestStudio Pro'));
+    await tester.pumpAndSettle();
 
     // 2. Linux additional dependency library & Registry key are displayed
     expect(find.text('libteststudio-engine0'), findsOneWidget);
     expect(find.text('TestStudio Registry Key'), findsOneWidget);
 
-    // 3. Test Android-style "Clear Cache Only" without uninstalling app
+    // 3. Test Android-style "Clear Cache Only" without uninstalling app, and verify history saved!
     await tester.tap(find.textContaining('Clear Cache Only'));
     await tester.pumpAndSettle();
     expect(find.text('Clear Cache'), findsOneWidget);
     await tester.tap(find.text('Clear Cache'));
     await tester.pumpAndSettle();
 
-    // Cache item removed, preferences and registry items remain!
+    // Cache item removed, preferences and registry items remain, AND history persisted!
     expect(userApp.cacheSizeBytes, 0);
     expect(userApp.registryItemsCount, 1);
+    expect(fakeService.savedHistory.length, 1);
 
-    // 4. Switch to System Apps filter and verify Safari is shown
+    // 4. Select AppCleaner itself and verify Self-Locked protection!
+    await tester.tap(find.text('AppCleaner').last);
+    await tester.pumpAndSettle();
+    expect(find.text('AppCleaner (Self-Locked)'), findsOneWidget);
+    expect(find.text('Stop Process'), findsNothing);
+
+    // 5. Switch to System Apps filter and verify Safari is shown
     await tester.tap(find.text('System Apps (1)'));
     await tester.pumpAndSettle();
     expect(find.text('Safari'), findsWidgets);
     expect(find.text('System App (Protected)'), findsOneWidget);
+
+    // 6. Switch to Orphaned Leftovers tab and verify layout renders cleanly
+    await tester.tap(find.text('Orphaned Leftovers'));
+    await tester.pumpAndSettle();
+    expect(find.text('OldUninstalledApp'), findsOneWidget);
+    expect(find.text('15.0 MB'), findsWidgets);
   });
 }

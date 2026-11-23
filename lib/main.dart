@@ -60,18 +60,6 @@ enum AppSortField {
   }
 }
 
-class OperationLogEntry {
-  final DateTime timestamp;
-  final String title;
-  final CleanActionResult result;
-
-  const OperationLogEntry({
-    required this.timestamp,
-    required this.title,
-    required this.result,
-  });
-}
-
 class AppCleanerApp extends StatelessWidget {
   final AppCleanerService? service;
 
@@ -136,7 +124,53 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
   void initState() {
     super.initState();
     _service = widget.service ?? AppCleanerService();
+    _loadPersistedHistory();
     _loadInitialScan();
+  }
+
+  Future<void> _loadPersistedHistory() async {
+    final saved = await _service.loadOperationHistory();
+    if (!mounted || saved.isEmpty) return;
+    setState(() {
+      _operationLogs
+        ..clear()
+        ..addAll(saved);
+      _totalFreedSessionBytes = saved.fold<int>(
+        0,
+        (sum, entry) => sum + entry.result.freedBytes,
+      );
+    });
+  }
+
+  Future<void> _handleClearHistory() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear Activity History?'),
+        content: const Text(
+          'This will remove all saved cleaning and uninstallation log entries from disk.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear History'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await _service.clearOperationHistory();
+    if (!mounted) return;
+    setState(() {
+      _operationLogs.clear();
+      _totalFreedSessionBytes = 0;
+    });
+    _showSnack('Activity history cleared.');
   }
 
   Future<void> _loadInitialScan() async {
@@ -413,6 +447,8 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
         ),
       );
     });
+    // Persist history immediately to disk so it survives app restarts.
+    _service.saveOperationHistory(_operationLogs);
     _showSnack(result.summaryMessage);
   }
 
@@ -642,7 +678,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                     ),
                   ),
 
-                // Session Freed Space Card
+                // Total Freed Space Card
                 Container(
                   margin: const EdgeInsets.all(14),
                   padding: const EdgeInsets.all(14),
@@ -654,7 +690,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Session Space Freed',
+                        'Total Space Freed',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: colorScheme.onPrimaryContainer,
@@ -1044,6 +1080,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
   ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final isSystem = app.isSystemApp;
 
     return InkWell(
@@ -1055,7 +1092,12 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
             : Colors.transparent,
         child: Row(
           children: [
-            AppAvatar(name: app.name, isSystem: isSystem),
+            AppAvatar(
+              name: app.name,
+              isSystem: isSystem,
+              isSelfApp: app.isSelfApp,
+              iconBytes: app.iconBytes,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1073,6 +1115,17 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                           ),
                         ),
                       ),
+                      if (app.isSelfApp)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Icon(
+                            Icons.lock_outline_rounded,
+                            size: 14,
+                            color: isDark
+                                ? Colors.lightBlue.shade200
+                                : Colors.blue.shade700,
+                          ),
+                        ),
                       if (app.isRunning)
                         Container(
                           width: 8,
@@ -1094,19 +1147,32 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                           vertical: 1,
                         ),
                         decoration: BoxDecoration(
-                          color: isSystem
-                              ? Colors.amber.withValues(alpha: 0.2)
-                              : Colors.indigo.withValues(alpha: 0.14),
+                          color: app.isSelfApp
+                              ? Colors.blue
+                                  .withValues(alpha: isDark ? 0.28 : 0.16)
+                              : (isSystem
+                                  ? Colors.amber
+                                      .withValues(alpha: isDark ? 0.24 : 0.2)
+                                  : Colors.indigo
+                                      .withValues(alpha: isDark ? 0.28 : 0.14)),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          app.origin.label,
+                          app.isSelfApp ? 'Self-Locked' : app.origin.label,
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: isSystem
-                                ? Colors.amber.shade900
-                                : Colors.indigo.shade800,
+                            color: app.isSelfApp
+                                ? (isDark
+                                    ? Colors.lightBlue.shade200
+                                    : Colors.blue.shade800)
+                                : (isSystem
+                                    ? (isDark
+                                        ? Colors.amber.shade300
+                                        : Colors.amber.shade900)
+                                    : (isDark
+                                        ? Colors.indigo.shade200
+                                        : Colors.indigo.shade800)),
                           ),
                         ),
                       ),
@@ -1192,79 +1258,149 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(24),
-      itemCount: _operationLogs.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final entry = _operationLogs[index];
-        final res = entry.result;
-        return Card(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: colorScheme.outlineVariant),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            border: Border(
+              bottom: BorderSide(color: colorScheme.outlineVariant),
+            ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          child: Row(
+            children: [
+              Icon(Icons.history_rounded, color: colorScheme.primary, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      res.success
-                          ? Icons.check_circle_rounded
-                          : Icons.warning_amber_rounded,
-                      color: res.success ? Colors.teal : Colors.orange,
-                    ),
-                    const SizedBox(width: 10),
                     Text(
-                      entry.title,
-                      style: theme.textTheme.titleMedium?.copyWith(
+                      'Activity History (${_operationLogs.length} entries)',
+                      style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const Spacer(),
                     Text(
-                      FormatUtils.formatDate(entry.timestamp),
+                      'Automatically saved to disk · Cumulative space freed: ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(res.summaryMessage),
-                if (res.removedPackages.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Removed packages & libraries: ${res.removedPackages.join(", ")}',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                if (res.commandLogs.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  ...res.commandLogs.map(
-                    (log) => Text(
-                      '• $log',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11.5,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _handleClearHistory,
+                icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                label: const Text('Clear History'),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(24),
+            itemCount: _operationLogs.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final entry = _operationLogs[index];
+              final res = entry.result;
+              return Card(
+                elevation: 0,
+                margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            res.success
+                                ? Icons.check_circle_rounded
+                                : Icons.warning_amber_rounded,
+                            color: res.success ? Colors.teal : Colors.orange,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              entry.title,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            FormatUtils.formatDate(entry.timestamp),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(res.summaryMessage),
+                      if (res.deletedPaths.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        ...res.deletedPaths.take(6).map(
+                              (path) => Text(
+                                '− $path',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11.5,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                        if (res.deletedPaths.length > 6)
+                          Text(
+                            '… and ${res.deletedPaths.length - 6} more items',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
+                      if (res.removedPackages.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Removed packages & libraries: ${res.removedPackages.join(", ")}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (res.commandLogs.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        ...res.commandLogs.map(
+                          (log) => Text(
+                            '• $log',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11.5,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

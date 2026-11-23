@@ -3,10 +3,13 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/app_models.dart';
 
-/// Shared gradient initial avatar for installed applications.
+/// Displays the real native application icon (when available), AppCleaner's own
+/// bundled asset icon (when [isSelfApp] is true), or a clean gradient fallback.
 class AppAvatar extends StatelessWidget {
   final String name;
   final bool isSystem;
+  final bool isSelfApp;
+  final Uint8List? iconBytes;
   final double size;
   final double borderRadius;
   final double fontSize;
@@ -15,6 +18,8 @@ class AppAvatar extends StatelessWidget {
     super.key,
     required this.name,
     required this.isSystem,
+    this.isSelfApp = false,
+    this.iconBytes,
     this.size = 40,
     this.borderRadius = 10,
     this.fontSize = 17,
@@ -22,6 +27,39 @@ class AppAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isSelfApp) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: Image.asset(
+          'assets/app_icon.png',
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, _, _) => _buildFallbackAvatar(context),
+        ),
+      );
+    }
+
+    if (iconBytes != null && iconBytes!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: Image.memory(
+          iconBytes!,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, _, _) => _buildFallbackAvatar(context),
+        ),
+      );
+    }
+
+    return _buildFallbackAvatar(context);
+  }
+
+  Widget _buildFallbackAvatar(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
       width: size,
@@ -57,17 +95,18 @@ class DataCategoryBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Color bg;
     final Color fg;
     if (item.isRegistryKey) {
-      bg = Colors.deepPurple.withValues(alpha: 0.16);
-      fg = Colors.deepPurple.shade800;
+      bg = Colors.deepPurple.withValues(alpha: isDark ? 0.28 : 0.16);
+      fg = isDark ? Colors.deepPurple.shade200 : Colors.deepPurple.shade800;
     } else if (item.isCacheLike) {
-      bg = Colors.amber.withValues(alpha: 0.2);
-      fg = Colors.amber.shade900;
+      bg = Colors.amber.withValues(alpha: isDark ? 0.24 : 0.2);
+      fg = isDark ? Colors.amber.shade300 : Colors.amber.shade900;
     } else {
-      bg = Colors.teal.withValues(alpha: 0.15);
-      fg = Colors.teal.shade800;
+      bg = Colors.teal.withValues(alpha: isDark ? 0.24 : 0.15);
+      fg = isDark ? Colors.teal.shade200 : Colors.teal.shade800;
     }
 
     return Container(
@@ -101,12 +140,13 @@ class LinuxDepSafetyBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: dependency.isSafeToRemove
-            ? Colors.teal.withValues(alpha: 0.15)
-            : Colors.amber.withValues(alpha: 0.22),
+            ? Colors.teal.withValues(alpha: isDark ? 0.25 : 0.15)
+            : Colors.amber.withValues(alpha: isDark ? 0.25 : 0.22),
         borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
@@ -116,8 +156,8 @@ class LinuxDepSafetyBadge extends StatelessWidget {
           fontSize: fontSize,
           fontWeight: FontWeight.w600,
           color: dependency.isSafeToRemove
-              ? Colors.teal.shade800
-              : Colors.amber.shade900,
+              ? (isDark ? Colors.teal.shade200 : Colors.teal.shade800)
+              : (isDark ? Colors.amber.shade300 : Colors.amber.shade900),
         ),
       ),
     );

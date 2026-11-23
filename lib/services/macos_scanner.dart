@@ -5,6 +5,7 @@ import '../models/app_models.dart';
 import '../utils/format_utils.dart';
 import '../utils/io_file_utils.dart';
 import '../utils/platform_parsers.dart';
+import 'macos_native_icons.dart';
 
 /// Scans macOS applications (.app bundles), distinguishes User Apps vs System Apps,
 /// discovers associated data/cache/containers in ~/Library, and detects orphaned leftovers.
@@ -336,8 +337,16 @@ class MacOsAppScanner {
       }
     }
 
+    final isSelf = IoFileUtils.isSelfApplication(
+      installPath: appPath,
+      identifier: bundleId,
+      name: displayName,
+      executablePath: executablePath,
+    );
+
     final modified = await IoFileUtils.getLastModified(appPath);
-    final isRunning = runningProcessOutput.contains(appPath) ||
+    final isRunning = isSelf ||
+        runningProcessOutput.contains(appPath) ||
         (executableName.length > 3 &&
             runningProcessOutput.contains('/MacOS/$executableName'));
 
@@ -345,6 +354,9 @@ class MacOsAppScanner {
       appPath,
       maxFiles: 2200,
     );
+    final iconBytes = isSelf
+        ? null
+        : await MacOsNativeIconBridge.getAppIconPng(appPath);
 
     return InstalledApp(
       id: bundleId.isNotEmpty ? '$bundleId@$appPath' : appPath,
@@ -359,6 +371,8 @@ class MacOsAppScanner {
       platform: DesktopPlatformType.macos,
       appSizeBytes: appSize,
       lastModified: modified,
+      isSelfApp: isSelf,
+      iconBytes: iconBytes,
       isRunning: isRunning,
     );
   }
@@ -401,10 +415,36 @@ class MacOsAppScanner {
     final rawAppFolderName = rawBundleFile.endsWith('.app')
         ? rawBundleFile.substring(0, rawBundleFile.length - 4)
         : rawBundleFile;
+    final exeBaseName = FormatUtils.basename(app.executablePath);
+    final bundleParts = bundleId.split('.');
+    final bundleLastSegment =
+        bundleParts.length >= 3 ? bundleParts.last.trim() : '';
+    final bundleVendorSegment =
+        bundleParts.length >= 2 ? bundleParts[1].trim() : '';
+
+    // Exclude overly generic executable names (like 'Electron' or 'applet') from name matching.
+    const genericExeNames = {
+      'electron',
+      'applet',
+      'launcher',
+      'runner',
+      'helper',
+      'java',
+      'python',
+      'python3',
+      'node',
+      'main',
+    };
 
     final nameTokens = <String>{
       if (app.name.trim().length >= 3) app.name.trim(),
       if (rawAppFolderName.trim().length >= 3) rawAppFolderName.trim(),
+      if (exeBaseName.trim().length >= 3 &&
+          !genericExeNames.contains(exeBaseName.toLowerCase()))
+        exeBaseName.trim(),
+      if (bundleLastSegment.length >= 4 &&
+          !genericExeNames.contains(bundleLastSegment.toLowerCase()))
+        bundleLastSegment,
     };
     final normalizedNameTokens = nameTokens
         .map(FormatUtils.normalizeToken)
@@ -417,6 +457,7 @@ class MacOsAppScanner {
       String description,
       bool matchByName,
       bool matchByGroupSuffix,
+      bool scanVendorSubdir,
     })>[
       (
         dirPath: '$libraryDir/Application Support',
@@ -424,6 +465,7 @@ class MacOsAppScanner {
         description: 'Application core data & user profile directory',
         matchByName: true,
         matchByGroupSuffix: false,
+        scanVendorSubdir: true,
       ),
       (
         dirPath: '$libraryDir/Caches',
@@ -431,6 +473,7 @@ class MacOsAppScanner {
         description: 'Application runtime cache & offline assets',
         matchByName: true,
         matchByGroupSuffix: false,
+        scanVendorSubdir: true,
       ),
       (
         dirPath: '$libraryDir/Preferences',
@@ -438,6 +481,7 @@ class MacOsAppScanner {
         description: 'User preference property list (.plist)',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Preferences/ByHost',
@@ -445,6 +489,15 @@ class MacOsAppScanner {
         description: 'Host-specific preference property list (.plist)',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
+      ),
+      (
+        dirPath: '$libraryDir/SyncedPreferences',
+        category: DataCategory.preferences,
+        description: 'Synced preference property list (.plist)',
+        matchByName: false,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Containers',
@@ -452,6 +505,7 @@ class MacOsAppScanner {
         description: 'macOS App Sandbox container directory',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Group Containers',
@@ -459,6 +513,15 @@ class MacOsAppScanner {
         description: 'Shared application group sandbox container',
         matchByName: false,
         matchByGroupSuffix: true,
+        scanVendorSubdir: false,
+      ),
+      (
+        dirPath: '$libraryDir/Application Scripts',
+        category: DataCategory.appData,
+        description: 'Sandboxed application scripts directory',
+        matchByName: false,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Saved Application State',
@@ -466,6 +529,7 @@ class MacOsAppScanner {
         description: 'Saved window geometry & restoration state',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Logs',
@@ -473,6 +537,7 @@ class MacOsAppScanner {
         description: 'Application runtime & diagnostic logs',
         matchByName: true,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/Cookies',
@@ -480,6 +545,7 @@ class MacOsAppScanner {
         description: 'HTTP network cookie storage',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/WebKit',
@@ -487,6 +553,7 @@ class MacOsAppScanner {
         description: 'WebKit web storage & IndexedDB cache',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/HTTPStorages',
@@ -494,6 +561,7 @@ class MacOsAppScanner {
         description: 'HTTP session & credential storage',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
       (
         dirPath: '$libraryDir/LaunchAgents',
@@ -501,11 +569,76 @@ class MacOsAppScanner {
         description: 'User login background service (LaunchAgent)',
         matchByName: false,
         matchByGroupSuffix: false,
+        scanVendorSubdir: false,
+      ),
+      // Cross-platform XDG config directory used by many macOS ports & Electron/Qt apps
+      (
+        dirPath: '$_homeDir/.config',
+        category: DataCategory.preferences,
+        description: 'XDG configuration directory (~/.config)',
+        matchByName: true,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
+      ),
+      // System-wide machine-level preferences & support files
+      (
+        dirPath: '/Library/Preferences',
+        category: DataCategory.preferences,
+        description: 'System-wide preference property list (/Library/Preferences)',
+        matchByName: false,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
+      ),
+      (
+        dirPath: '/Library/Application Support',
+        category: DataCategory.appData,
+        description: 'System-wide application support (/Library/Application Support)',
+        matchByName: true,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
+      ),
+      (
+        dirPath: '/Library/LaunchAgents',
+        category: DataCategory.launchAgent,
+        description: 'System-wide login agent (/Library/LaunchAgents)',
+        matchByName: false,
+        matchByGroupSuffix: false,
+        scanVendorSubdir: false,
       ),
     ];
 
     final foundPaths = <String>{};
     final items = <AppDataItem>[];
+    final bundlePrefix2 = bundleParts.length >= 2
+        ? '${bundleParts[0].toLowerCase()}.${bundleParts[1].toLowerCase()}'
+        : '';
+
+    Future<void> addMatchedEntry(
+      String entryPath,
+      DataCategory category,
+      String description,
+    ) async {
+      if (!foundPaths.add(entryPath)) return;
+      final size = await IoFileUtils.calculateEntitySize(
+        entryPath,
+        maxFiles: 3000,
+      );
+      final modified = await IoFileUtils.getLastModified(entryPath);
+      final stat = await FileStat.stat(entryPath);
+      items.add(
+        AppDataItem(
+          id: entryPath,
+          name: FormatUtils.basename(entryPath),
+          path: entryPath,
+          category: category,
+          sizeBytes: size,
+          lastModified: modified,
+          isDirectory: stat.type == FileSystemEntityType.directory,
+          description: description,
+          selected: true,
+        ),
+      );
+    }
 
     for (final target in searchTargets) {
       final dir = Directory(target.dirPath);
@@ -533,7 +666,11 @@ class MacOsAppScanner {
               baseLower.startsWith('$bundleIdLower.')) {
             matched = true;
           } else if (target.matchByGroupSuffix &&
-              baseLower.contains(bundleIdLower)) {
+              (baseLower.contains(bundleIdLower) ||
+                  (bundlePrefix2.length >= 8 &&
+                      bundleLastSegment.length >= 4 &&
+                      baseLower.contains(bundlePrefix2) &&
+                      baseLower.contains(bundleLastSegment.toLowerCase())))) {
             matched = true;
           }
         }
@@ -546,27 +683,49 @@ class MacOsAppScanner {
           }
         }
 
-        if (matched && foundPaths.add(entry.path)) {
-          final size = await IoFileUtils.calculateEntitySize(
+        if (matched) {
+          await addMatchedEntry(
             entry.path,
-            maxFiles: 3000,
+            target.category,
+            target.description,
           );
-          final modified = await IoFileUtils.getLastModified(entry.path);
-          final stat = await FileStat.stat(entry.path);
-          items.add(
-            AppDataItem(
-              id: entry.path,
-              name: base,
-              path: entry.path,
-              category: target.category,
-              sizeBytes: size,
-              lastModified: modified,
-              isDirectory: stat.type == FileSystemEntityType.directory,
-              description: target.description,
-              selected: true,
-            ),
-          );
+          continue;
         }
+
+        // Check nested <Vendor>/<App> folders (e.g. Application Support/Google/Chrome)
+        if (target.scanVendorSubdir &&
+            entry is Directory &&
+            bundleVendorSegment.length >= 3 &&
+            FormatUtils.normalizeToken(base) ==
+                FormatUtils.normalizeToken(bundleVendorSegment)) {
+          try {
+            await for (final child in entry.list(followLinks: false)) {
+              final childBase = FormatUtils.basename(child.path);
+              final childNorm = FormatUtils.normalizeToken(childBase);
+              if (childNorm.length >= 3 &&
+                  normalizedNameTokens.contains(childNorm)) {
+                await addMatchedEntry(
+                  child.path,
+                  target.category,
+                  '${target.description} ($base/$childBase)',
+                );
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Check hidden dot-directory directly in HOME (e.g. ~/.vscode, ~/.0ad)
+    for (final token in normalizedNameTokens) {
+      if (token.length < 4) continue;
+      final dotPath = '$_homeDir/.$token';
+      if (await Directory(dotPath).exists()) {
+        await addMatchedEntry(
+          dotPath,
+          DataCategory.preferences,
+          'User home hidden config directory (~/.$token)',
+        );
       }
     }
 

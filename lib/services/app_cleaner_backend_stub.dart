@@ -8,6 +8,7 @@ import 'web_mock_data.dart';
 class AppCleanerPlatformBackend {
   List<InstalledApp>? _cachedMockApps;
   List<OrphanLeftoverGroup>? _cachedMockOrphans;
+  List<OperationLogEntry> _webHistory = [];
 
   Future<List<InstalledApp>> scanInstalledApps({
     DesktopPlatformType? filterPlatform,
@@ -38,6 +39,16 @@ class AppCleanerPlatformBackend {
     bool onlySelected = true,
     bool terminateIfRunning = true,
   }) async {
+    if (app.isSelfApp) {
+      return const CleanActionResult(
+        success: false,
+        deletedCount: 0,
+        freedBytes: 0,
+        summaryMessage:
+            'Operation blocked: AppCleaner is self-locked to protect itself while running.',
+      );
+    }
+
     final logs = <String>[];
     if (terminateIfRunning && app.isRunning) {
       app.isRunning = false;
@@ -90,6 +101,16 @@ class AppCleanerPlatformBackend {
     required bool removeSelectedLinuxDeps,
     bool moveToTrashOnMac = true,
   }) async {
+    if (app.isSelfApp) {
+      return const CleanActionResult(
+        success: false,
+        deletedCount: 0,
+        freedBytes: 0,
+        summaryMessage:
+            'Operation blocked: AppCleaner cannot uninstall itself while running.',
+      );
+    }
+
     if (app.isSystemApp) {
       return const CleanActionResult(
         success: false,
@@ -193,9 +214,22 @@ class AppCleanerPlatformBackend {
   }
 
   Future<bool> terminateRunningApp(InstalledApp app) async {
+    if (app.isSelfApp) return false;
     app.isRunning = false;
     return true;
   }
 
   Future<void> revealInFileManager(String path) async {}
+
+  Future<List<OperationLogEntry>> loadOperationHistory() async {
+    return List<OperationLogEntry>.from(_webHistory);
+  }
+
+  Future<void> saveOperationHistory(List<OperationLogEntry> entries) async {
+    _webHistory = List<OperationLogEntry>.from(entries);
+  }
+
+  Future<void> clearOperationHistory() async {
+    _webHistory = [];
+  }
 }

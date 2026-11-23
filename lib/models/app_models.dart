@@ -222,6 +222,8 @@ class InstalledApp {
   final String? linuxPackageName;
   final String? uninstallCommandHint;
   final DateTime? lastModified;
+  final bool isSelfApp;
+  Uint8List? iconBytes;
   bool isRunning;
   bool dataScanned;
   List<AppDataItem> dataItems;
@@ -242,6 +244,8 @@ class InstalledApp {
     this.linuxPackageName,
     this.uninstallCommandHint,
     this.lastModified,
+    this.isSelfApp = false,
+    this.iconBytes,
     this.isRunning = false,
     this.dataScanned = false,
     List<AppDataItem>? dataItems,
@@ -274,6 +278,9 @@ class InstalledApp {
   int get totalFootprintBytes => appSizeBytes + totalDataSizeBytes;
 
   bool get isSystemApp => origin == AppOriginType.systemApp;
+
+  /// Protected from uninstallation (either OS system app or AppCleaner itself).
+  bool get isProtectedFromUninstall => isSystemApp || isSelfApp;
 }
 
 /// Represents a group of orphaned leftover files/registry keys belonging to a previously uninstalled app.
@@ -329,4 +336,70 @@ class CleanActionResult {
     this.commandLogs = const [],
     required this.summaryMessage,
   });
+
+  Map<String, dynamic> toJson() => {
+        'success': success,
+        'deletedCount': deletedCount,
+        'freedBytes': freedBytes,
+        'deletedPaths': deletedPaths,
+        'failedPaths': failedPaths,
+        'removedPackages': removedPackages,
+        'commandLogs': commandLogs,
+        'summaryMessage': summaryMessage,
+      };
+
+  factory CleanActionResult.fromJson(Map<String, dynamic> json) {
+    return CleanActionResult(
+      success: json['success'] == true,
+      deletedCount: (json['deletedCount'] as num?)?.toInt() ?? 0,
+      freedBytes: (json['freedBytes'] as num?)?.toInt() ?? 0,
+      deletedPaths: (json['deletedPaths'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      failedPaths: (json['failedPaths'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      removedPackages: (json['removedPackages'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      commandLogs: (json['commandLogs'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      summaryMessage: json['summaryMessage']?.toString() ?? '',
+    );
+  }
+}
+
+/// Persistent history entry for a cleaning, reset, or uninstallation action.
+class OperationLogEntry {
+  final DateTime timestamp;
+  final String title;
+  final CleanActionResult result;
+
+  const OperationLogEntry({
+    required this.timestamp,
+    required this.title,
+    required this.result,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'timestamp': timestamp.toIso8601String(),
+        'title': title,
+        'result': result.toJson(),
+      };
+
+  factory OperationLogEntry.fromJson(Map<String, dynamic> json) {
+    return OperationLogEntry(
+      timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ??
+          DateTime.now(),
+      title: json['title']?.toString() ?? 'Operation',
+      result: CleanActionResult.fromJson(
+        (json['result'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+    );
+  }
 }

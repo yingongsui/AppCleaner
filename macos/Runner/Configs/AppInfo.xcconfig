@@ -12,7 +12,7 @@ ARCHS = arm64
 EXCLUDED_ARCHS = x86_64
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.appCleaner
+PRODUCT_BUNDLE_IDENTIFIER = com.yin.appcleaner
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Yin. All rights reserved.

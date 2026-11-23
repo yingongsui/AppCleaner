@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
+import '../utils/io_file_utils.dart';
 import '../utils/platform_parsers.dart';
 import 'linux_dependency_analyzer.dart';
 import 'linux_scanner.dart';
@@ -82,6 +84,16 @@ class AppCleanerPlatformBackend {
     bool onlySelected = true,
     bool terminateIfRunning = true,
   }) async {
+    if (app.isSelfApp) {
+      return const CleanActionResult(
+        success: false,
+        deletedCount: 0,
+        freedBytes: 0,
+        summaryMessage:
+            'Operation blocked: AppCleaner is self-locked to protect itself while running.',
+      );
+    }
+
     final logs = <String>[];
     if (terminateIfRunning && app.isRunning) {
       final stopped = await terminateRunningApp(app);
@@ -121,15 +133,8 @@ class AppCleanerPlatformBackend {
       }
     }
 
-    if (Platform.isMacOS &&
-        !cacheOnly &&
-        targets.any((t) => t.category == DataCategory.preferences)) {
-      try {
-        await Process.run('defaults', ['delete', app.identifier]);
-        logs.add(
-          'Flushed macOS cfprefsd preference cache (defaults delete ${app.identifier})',
-        );
-      } catch (_) {}
+    if (Platform.isMacOS && !cacheOnly) {
+      await _flushMacPreferencesCache(app, targets, logs);
     }
 
     final actionLabel =
@@ -153,6 +158,16 @@ class AppCleanerPlatformBackend {
     required bool removeSelectedLinuxDeps,
     bool moveToTrashOnMac = true,
   }) async {
+    if (app.isSelfApp) {
+      return const CleanActionResult(
+        success: false,
+        deletedCount: 0,
+        freedBytes: 0,
+        summaryMessage:
+            'Operation blocked: AppCleaner cannot uninstall itself while running.',
+      );
+    }
+
     if (app.isSystemApp) {
       return const CleanActionResult(
         success: false,
@@ -186,6 +201,9 @@ class AppCleanerPlatformBackend {
         } else {
           failedPaths.add(item.path);
         }
+      }
+      if (Platform.isMacOS) {
+        await _flushMacPreferencesCache(app, selectedData, logs);
       }
     }
 
@@ -286,6 +304,7 @@ class AppCleanerPlatformBackend {
   }
 
   Future<bool> terminateRunningApp(InstalledApp app) async {
+    if (app.isSelfApp) return false;
     try {
       if (Platform.isMacOS) {
         final exeName = FormatUtils.basename(app.executablePath);
@@ -482,6 +501,74 @@ class AppCleanerPlatformBackend {
       logs.add('Failed to launch Windows uninstaller: $e');
     }
     return false;
+  }
+
+  Future<List<OperationLogEntry>> loadOperationHistory() async {
+    try {
+      final file = File(IoFileUtils.getHistoryFilePath());
+      if (!await file.exists()) return [];
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map((m) => OperationLogEntry.fromJson(m.cast<String, dynamic>()))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveOperationHistory(List<OperationLogEntry> entries) async {
+    try {
+      final file = File(IoFileUtils.getHistoryFilePath());
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+      final payload = entries.take(500).map((e) => e.toJson()).toList();
+      const encoder = JsonEncoder.withIndent('  ');
+      await file.writeAsString(encoder.convert(payload));
+    } catch (_) {}
+  }
+
+  Future<void> clearOperationHistory() async {
+    try {
+      final file = File(IoFileUtils.getHistoryFilePath());
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
+  }
+
+  /// Evicts cached preferences from macOS `cfprefsd` daemon RAM so reinstalled
+  /// apps cannot restore deleted `.plist` settings from memory.
+  Future<void> _flushMacPreferencesCache(
+    InstalledApp app,
+    List<AppDataItem> cleanedItems,
+    List<String> logs,
+  ) async {
+    final domains = <String>{};
+    final bid = app.identifier.trim();
+    if (bid.isNotEmpty && !bid.startsWith('macos.app.')) {
+      domains.add(bid);
+    }
+    for (final item in cleanedItems) {
+      if (item.category == DataCategory.preferences &&
+          item.name.toLowerCase().endsWith('.plist')) {
+        final domain = item.name.substring(0, item.name.length - 6);
+        if (domain.isNotEmpty) domains.add(domain);
+      }
+    }
+
+    for (final domain in domains) {
+      try {
+        final res = await Process.run('defaults', ['delete', domain]);
+        if (res.exitCode == 0) {
+          logs.add('Flushed macOS cfprefsd cache (defaults delete $domain)');
+        }
+      } catch (_) {}
+    }
   }
 
   Future<bool> _deleteFileSystemPath(String path) async {

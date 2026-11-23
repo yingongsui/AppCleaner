@@ -251,6 +251,23 @@ class WebMockData {
   static List<InstalledApp> buildMacOsSampleApps() {
     return [
       InstalledApp(
+        id: 'mac-preview:appcleaner',
+        name: 'AppCleaner',
+        identifier: 'com.yin.appcleaner',
+        version: '1.0.0',
+        publisher: 'Yin',
+        installPath: '/Applications/AppCleaner.app',
+        executablePath:
+            '/Applications/AppCleaner.app/Contents/MacOS/AppCleaner',
+        origin: AppOriginType.userInstalled,
+        installSource: InstallSource.appBundle,
+        platform: DesktopPlatformType.macos,
+        appSizeBytes: 22 * 1024 * 1024,
+        isSelfApp: true,
+        isRunning: true,
+        dataScanned: true,
+      ),
+      InstalledApp(
         id: 'mac-preview:vscode',
         name: 'Visual Studio Code',
         identifier: 'com.microsoft.VSCode',

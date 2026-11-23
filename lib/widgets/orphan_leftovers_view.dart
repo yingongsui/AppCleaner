@@ -142,10 +142,13 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
                 ],
               ),
               const SizedBox(height: 16),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   SizedBox(
-                    width: 340,
+                    width: 300,
                     child: TextField(
                       decoration: InputDecoration(
                         hintText:
@@ -162,7 +165,6 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
                       onChanged: (v) => setState(() => _searchQuery = v),
                     ),
                   ),
-                  const SizedBox(width: 16),
                   TextButton.icon(
                     onPressed: widget.orphanGroups.isEmpty
                         ? null
@@ -191,7 +193,6 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
                     icon: const Icon(Icons.deselect_rounded, size: 18),
                     label: const Text('Deselect All'),
                   ),
-                  const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -202,7 +203,7 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      'Found ${widget.orphanGroups.length} orphaned app groups · Total ${FormatUtils.formatBytes(totalOrphanBytes)}',
+                      'Found ${widget.orphanGroups.length} groups · Total ${FormatUtils.formatBytes(totalOrphanBytes)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -303,34 +304,42 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
         ),
         title: Row(
           children: [
-            Flexible(
-              child: Text(
-                group.suspectedAppName,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      group.suspectedAppName,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: colorScheme.errorContainer.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Orphaned · ${group.items.length} items',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                'Orphaned · ${group.items.length} items',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-            const Spacer(),
+            const SizedBox(width: 12),
             Text(
               FormatUtils.formatBytes(group.totalSizeBytes),
+              textAlign: TextAlign.right,
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: colorScheme.error,

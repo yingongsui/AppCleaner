@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
@@ -57,6 +58,8 @@ class WindowsAppScanner {
     'WOW6432Node',
     'Khronos',
     'MozillaPlugins',
+    'AppCleaner',
+    'app_cleaner',
   };
 
   /// Scans all installed Windows applications (Win32 Registry + MSIX/Appx).
@@ -66,6 +69,22 @@ class WindowsAppScanner {
 
     const psScript = r'''
 $ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Drawing
+function Get-IconBase64($iconPath) {
+  if ([string]::IsNullOrWhiteSpace($iconPath)) { return '' }
+  $clean = $iconPath.Split(',')[0].Trim().Trim('"')
+  if (-not (Test-Path $clean)) { return '' }
+  try {
+    $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($clean)
+    if ($null -eq $ico) { return '' }
+    $bmp = $ico.ToBitmap()
+    $ms = New-Object System.IO.MemoryStream
+    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $b64 = [Convert]::ToBase64String($ms.ToArray())
+    $ms.Dispose(); $bmp.Dispose(); $ico.Dispose()
+    return $b64
+  } catch { return '' }
+}
 $paths = @(
   @{ Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'; Scope = 'HKLM' },
   @{ Path = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'; Scope = 'HKLM' },
@@ -81,6 +100,7 @@ foreach ($entry in $paths) {
       Publisher = [string]$_.Publisher
       InstallLocation = [string]$_.InstallLocation
       DisplayIcon = [string]$_.DisplayIcon
+      IconBase64 = (Get-IconBase64 ([string]$_.DisplayIcon))
       UninstallString = [string]$_.UninstallString
       SystemComponent = [int]($_.SystemComponent -as [int])
       Scope = $entry.Scope
@@ -96,6 +116,7 @@ Get-AppxPackage | Where-Object { -not $_.IsFramework } | ForEach-Object {
     Publisher = [string]$_.Publisher
     InstallLocation = [string]$_.InstallLocation
     DisplayIcon = ''
+    IconBase64 = ''
     UninstallString = [string]$_.PackageFullName
     SystemComponent = [int]($_.NonRemovable -or ($_.SignatureKind -eq 'System'))
     Scope = 'Appx'
@@ -153,6 +174,20 @@ $results | ConvertTo-Json -Compress
               );
             }
 
+            final isSelf = IoFileUtils.isSelfApplication(
+              installPath: installLocation,
+              identifier: id,
+              name: name,
+            );
+
+            Uint8List? iconBytes;
+            final iconB64 = (raw['IconBase64']?.toString() ?? '').trim();
+            if (!isSelf && iconB64.isNotEmpty) {
+              try {
+                iconBytes = base64Decode(iconB64);
+              } catch (_) {}
+            }
+
             apps.add(
               InstalledApp(
                 id: '$kind:$id',
@@ -170,6 +205,9 @@ $results | ConvertTo-Json -Compress
                 platform: DesktopPlatformType.windows,
                 appSizeBytes: sizeBytes,
                 uninstallCommandHint: uninstallStr,
+                isSelfApp: isSelf,
+                iconBytes: iconBytes,
+                isRunning: isSelf,
               ),
             );
           }

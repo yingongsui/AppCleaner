@@ -66,4 +66,12 @@ class AppCleanerService {
 
   Future<void> revealInFileManager(String path) =>
       _backend.revealInFileManager(path);
+
+  Future<List<OperationLogEntry>> loadOperationHistory() =>
+      _backend.loadOperationHistory();
+
+  Future<void> saveOperationHistory(List<OperationLogEntry> entries) =>
+      _backend.saveOperationHistory(entries);
+
+  Future<void> clearOperationHistory() => _backend.clearOperationHistory();
 }

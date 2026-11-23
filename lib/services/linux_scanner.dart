@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
@@ -92,6 +93,10 @@ class LinuxAppScanner {
     'mesa_shader_cache',
     'gstreamer-1.0',
     'thumbnails',
+    'AppCleaner',
+    'app_cleaner',
+    'appcleaner',
+    'com.yin.appcleaner',
   };
 
   /// Scans all installed applications on Linux.
@@ -273,9 +278,18 @@ class LinuxAppScanner {
       if (meta.sizeBytes > 0) appSize = meta.sizeBytes;
     }
 
+    final isSelf = IoFileUtils.isSelfApplication(
+      installPath: file.path,
+      identifier: identifier,
+      name: name,
+      executablePath: execBinary,
+    );
+
     final binBase = FormatUtils.basename(execBinary);
     final isRunning =
-        binBase.length >= 3 && runningProcesses.contains(binBase);
+        isSelf || (binBase.length >= 3 && runningProcesses.contains(binBase));
+    final iconBytes =
+        isSelf ? null : await _resolveLinuxIconBytes(fields['Icon'] ?? '');
 
     return InstalledApp(
       id: '${source.name}:$identifier:${file.path}',
@@ -291,8 +305,56 @@ class LinuxAppScanner {
       platform: DesktopPlatformType.linux,
       appSizeBytes: appSize,
       linuxPackageName: packageName,
+      isSelfApp: isSelf,
+      iconBytes: iconBytes,
       isRunning: isRunning,
     );
+  }
+
+  /// Resolves raster icon bytes (.png/.jpg/.webp) from a `.desktop` `Icon=` entry.
+  Future<Uint8List?> _resolveLinuxIconBytes(String iconSpec) async {
+    final trimmed = iconSpec.trim();
+    if (trimmed.isEmpty) return null;
+
+    const rasterExts = ['.png', '.jpg', '.jpeg', '.webp'];
+
+    if (trimmed.startsWith('/')) {
+      final lower = trimmed.toLowerCase();
+      if (rasterExts.any(lower.endsWith)) {
+        final f = File(trimmed);
+        if (await f.exists()) {
+          try {
+            return await f.readAsBytes();
+          } catch (_) {}
+        }
+      }
+      return null;
+    }
+
+    final searchDirs = <String>[
+      '/usr/share/icons/hicolor/256x256/apps',
+      '/usr/share/icons/hicolor/128x128/apps',
+      '/usr/share/icons/hicolor/512x512/apps',
+      '/usr/share/icons/hicolor/64x64/apps',
+      '/usr/share/icons/hicolor/48x48/apps',
+      '/usr/share/pixmaps',
+      '$_xdgDataHome/icons/hicolor/256x256/apps',
+      '$_xdgDataHome/icons/hicolor/128x128/apps',
+      '/var/lib/flatpak/exports/share/icons/hicolor/128x128/apps',
+      '$_xdgDataHome/flatpak/exports/share/icons/hicolor/128x128/apps',
+    ];
+
+    for (final dir in searchDirs) {
+      for (final ext in const ['.png', '.jpg']) {
+        final candidate = File('$dir/$trimmed$ext');
+        if (await candidate.exists()) {
+          try {
+            return await candidate.readAsBytes();
+          } catch (_) {}
+        }
+      }
+    }
+    return null;
   }
 
   String _extractBinaryFromExec(String rawExec) {

@@ -138,12 +138,14 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // App Avatar
+          // App Avatar (real native icon / bundled AppCleaner icon)
           AppAvatar(
             name: app.name,
             isSystem: isSystem,
+            isSelfApp: app.isSelfApp,
+            iconBytes: app.iconBytes,
             size: 64,
-            borderRadius: 16,
+            borderRadius: 14,
             fontSize: 28,
           ),
           const SizedBox(width: 18),
@@ -187,11 +189,30 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                       fgColor: colorScheme.onSecondaryContainer,
                       icon: Icons.inventory_2_outlined,
                     ),
+                    if (app.isSelfApp)
+                      _buildBadge(
+                        label: 'This App · Self-Locked',
+                        bgColor: Colors.blue.withValues(
+                          alpha: theme.brightness == Brightness.dark
+                              ? 0.28
+                              : 0.16,
+                        ),
+                        fgColor: theme.brightness == Brightness.dark
+                            ? Colors.lightBlue.shade200
+                            : Colors.blue.shade800,
+                        icon: Icons.lock_outline_rounded,
+                      ),
                     if (app.isRunning)
                       _buildBadge(
                         label: 'Running',
-                        bgColor: Colors.green.withValues(alpha: 0.16),
-                        fgColor: Colors.green.shade800,
+                        bgColor: Colors.green.withValues(
+                          alpha: theme.brightness == Brightness.dark
+                              ? 0.25
+                              : 0.16,
+                        ),
+                        fgColor: theme.brightness == Brightness.dark
+                            ? Colors.green.shade300
+                            : Colors.green.shade800,
                         icon: Icons.bolt_rounded,
                       ),
                   ],
@@ -253,11 +274,13 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                       )
                     : const Icon(Icons.refresh_rounded),
               ),
-              if (app.isRunning) ...[
+              if (app.isRunning && !app.isSelfApp) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.orange.shade800,
+                    foregroundColor: theme.brightness == Brightness.dark
+                        ? Colors.orange.shade300
+                        : Colors.orange.shade800,
                     visualDensity: VisualDensity.compact,
                   ),
                   onPressed: widget.onTerminateProcess,
@@ -415,47 +438,61 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               // 1. Clear Cache Only (Android "Clear Cache")
-              FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 14,
+              Tooltip(
+                message: app.isSelfApp
+                    ? 'AppCleaner is self-locked to prevent modifying itself while running.'
+                    : 'Remove runtime caches, logs, and saved state only.',
+                child: FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
                   ),
-                ),
-                onPressed: widget.isScanningData || cacheBytes == 0
-                    ? null
-                    : widget.onClearCacheOnly,
-                icon: const Icon(Icons.cleaning_services_outlined),
-                label: Text(
-                  'Clear Cache Only (${FormatUtils.formatBytes(cacheBytes)})',
+                  onPressed:
+                      widget.isScanningData || cacheBytes == 0 || app.isSelfApp
+                          ? null
+                          : widget.onClearCacheOnly,
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: Text(
+                    'Clear Cache Only (${FormatUtils.formatBytes(cacheBytes)})',
+                  ),
                 ),
               ),
 
               // 2. Clear All Data / Reset App (Android "Clear Storage / Clear Data")
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.teal.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 14,
+              Tooltip(
+                message: app.isSelfApp
+                    ? 'AppCleaner is self-locked to protect its own history and runtime data.'
+                    : 'Reset all selected app data, config, and Registry keys without uninstalling the binary.',
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
                   ),
-                ),
-                onPressed:
-                    widget.isScanningData || app.selectedDataSizeBytes == 0
-                        ? null
-                        : widget.onClearAllData,
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: Text(
-                  'Clear Selected Data / Reset App (${FormatUtils.formatBytes(app.selectedDataSizeBytes)})',
+                  onPressed: widget.isScanningData ||
+                          app.selectedDataSizeBytes == 0 ||
+                          app.isSelfApp
+                      ? null
+                      : widget.onClearAllData,
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: Text(
+                    'Clear Selected Data / Reset App (${FormatUtils.formatBytes(app.selectedDataSizeBytes)})',
+                  ),
                 ),
               ),
 
               // 3. Uninstall App + Leftovers (+ Linux Deps)
               Tooltip(
-                message: app.isSystemApp
-                    ? 'System applications are protected by the OS and cannot be uninstalled (you can still clear their cache or reset their data above).'
-                    : 'Uninstall the application binary along with selected leftovers, registry keys, and Linux dependencies.',
+                message: app.isSelfApp
+                    ? 'AppCleaner is self-locked and cannot uninstall itself while running.'
+                    : (app.isSystemApp
+                        ? 'System applications are protected by the OS and cannot be uninstalled (you can still clear their cache or reset their data above).'
+                        : 'Uninstall the application binary along with selected leftovers, registry keys, and Linux dependencies.'),
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: colorScheme.error,
@@ -465,14 +502,21 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                       vertical: 14,
                     ),
                   ),
-                  onPressed: widget.isScanningData || app.isSystemApp
+                  onPressed: widget.isScanningData ||
+                          app.isProtectedFromUninstall
                       ? null
                       : widget.onUninstallApp,
-                  icon: const Icon(Icons.delete_forever_rounded),
+                  icon: Icon(
+                    app.isSelfApp
+                        ? Icons.lock_rounded
+                        : Icons.delete_forever_rounded,
+                  ),
                   label: Text(
-                    app.isSystemApp
-                        ? 'System App (Protected)'
-                        : 'Uninstall App & Clean Leftovers (${FormatUtils.formatBytes(app.appSizeBytes + app.selectedDataSizeBytes + app.selectedLinuxDepsSizeBytes)})',
+                    app.isSelfApp
+                        ? 'AppCleaner (Self-Locked)'
+                        : (app.isSystemApp
+                            ? 'System App (Protected)'
+                            : 'Uninstall App & Clean Leftovers (${FormatUtils.formatBytes(app.appSizeBytes + app.selectedDataSizeBytes + app.selectedLinuxDepsSizeBytes)})'),
                   ),
                 ),
               ),
@@ -990,13 +1034,16 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
   }
 
   Widget _buildOriginBadge(BuildContext context, AppOriginType origin) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isSystem = origin == AppOriginType.systemApp;
     return _buildBadge(
       label: origin.label,
       bgColor: isSystem
-          ? Colors.amber.withValues(alpha: 0.2)
-          : Colors.indigo.withValues(alpha: 0.15),
-      fgColor: isSystem ? Colors.amber.shade900 : Colors.indigo.shade800,
+          ? Colors.amber.withValues(alpha: isDark ? 0.24 : 0.2)
+          : Colors.indigo.withValues(alpha: isDark ? 0.28 : 0.15),
+      fgColor: isSystem
+          ? (isDark ? Colors.amber.shade300 : Colors.amber.shade900)
+          : (isDark ? Colors.indigo.shade200 : Colors.indigo.shade800),
       icon: isSystem ? Icons.shield_outlined : Icons.person_outline_rounded,
     );
   }

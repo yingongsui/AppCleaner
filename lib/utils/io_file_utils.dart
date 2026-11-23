@@ -1,6 +1,9 @@
 import 'dart:io';
 
-/// Desktop-only (`dart:io`) filesystem size and timestamp calculation utilities.
+import 'format_utils.dart';
+
+/// Desktop-only (`dart:io`) filesystem size, timestamp, self-protection, and
+/// persistent history path utilities.
 class IoFileUtils {
   /// Computes the size of a FileSystemEntity.
   /// Uses native `du -sk` on macOS/Linux for fast, exact directory sizing without
@@ -56,5 +59,65 @@ class IoFileUtils {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Determines whether the inspected app entry is AppCleaner itself (self-lock guard).
+  static bool isSelfApplication({
+    required String installPath,
+    required String identifier,
+    required String name,
+    String executablePath = '',
+  }) {
+    final normId = identifier.toLowerCase().trim();
+    if (normId == 'com.yin.appcleaner' ||
+        normId == 'com.example.appcleaner' ||
+        normId == 'com.example.app_cleaner' ||
+        normId == 'appcleaner' ||
+        normId == 'app-cleaner' ||
+        normId == 'app_cleaner') {
+      return true;
+    }
+
+    final normName = FormatUtils.normalizeToken(name);
+    if (normName == 'appcleaner') {
+      return true;
+    }
+
+    try {
+      final currentExe =
+          Platform.resolvedExecutable.toLowerCase().replaceAll(r'\', '/');
+      final normInstall = installPath.toLowerCase().replaceAll(r'\', '/');
+      if (normInstall.isNotEmpty &&
+          (currentExe == normInstall ||
+              currentExe.startsWith('$normInstall/'))) {
+        return true;
+      }
+      final normExe = executablePath.toLowerCase().replaceAll(r'\', '/');
+      if (normExe.isNotEmpty && currentExe == normExe) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  /// Returns the platform-appropriate JSON file path for persisting operation history.
+  static String getHistoryFilePath() {
+    if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '/Users/Shared';
+      return '$home/Library/Application Support/AppCleaner/history.json';
+    }
+    if (Platform.isLinux) {
+      final home = Platform.environment['HOME'] ?? '/home';
+      final xdgData =
+          Platform.environment['XDG_DATA_HOME'] ?? '$home/.local/share';
+      return '$xdgData/AppCleaner/history.json';
+    }
+    if (Platform.isWindows) {
+      final appData =
+          Platform.environment['APPDATA'] ?? r'C:\Users\Default\AppData\Roaming';
+      return '$appData\\AppCleaner\\history.json';
+    }
+    return 'app_cleaner_history.json';
   }
 }
