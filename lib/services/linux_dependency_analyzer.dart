@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import '../models/app_models.dart';
-import 'linux_command_helper.dart';
+import '../utils/platform_parsers.dart';
 
 /// Analyzes and resolves additional libraries/dependencies installed alongside
 /// a Linux package (APT/dpkg, Pacman, DNF/rpm, Flatpak) so they can be
@@ -240,17 +240,11 @@ class LinuxDependencyAnalyzer {
     if (!await file.exists()) return {};
     try {
       final content = await file.readAsString();
-      return parseAptHistoryLogContent(content, targetPackage);
+      return PlatformParsers.parseAptHistoryCompanions(content, targetPackage);
     } catch (_) {
       return {};
     }
   }
-
-  static Set<String> parseAptHistoryLogContent(
-    String logContent,
-    String targetPackage,
-  ) =>
-      LinuxCommandHelper.parseAptHistoryLogContent(logContent, targetPackage);
 
   Future<
       Map<String, ({String version, int sizeBytes, String description})>>
@@ -463,17 +457,6 @@ class LinuxDependencyAnalyzer {
     } catch (_) {}
     return results;
   }
-
-  static List<String> buildUninstallCommand({
-    required InstalledApp app,
-    required List<LinuxDependencyPackage> selectedDependencies,
-    bool usePkexec = true,
-  }) =>
-      LinuxCommandHelper.buildUninstallCommand(
-        app: app,
-        selectedDependencies: selectedDependencies,
-        usePkexec: usePkexec,
-      );
 
   int _parseHumanSize(String text) {
     final match = RegExp(r'([\d.]+)\s*([KMGTP]?i?B)', caseSensitive: false)

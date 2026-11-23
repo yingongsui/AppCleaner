@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/app_models.dart';
-import '../services/linux_command_helper.dart';
 import '../utils/format_utils.dart';
+import '../utils/platform_parsers.dart';
+import 'shared_badges.dart';
 
 /// Filter mode for the selected app's data, registry, and leftover items.
 enum DataFilterTab {
@@ -59,6 +59,18 @@ class AppDetailPanel extends StatefulWidget {
 
 class _AppDetailPanelState extends State<AppDetailPanel> {
   DataFilterTab _dataFilter = DataFilterTab.all;
+
+  @override
+  void didUpdateWidget(covariant AppDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.app.id != oldWidget.app.id) {
+      final hasRegistry = widget.app.platform == DesktopPlatformType.windows ||
+          widget.app.registryItemsCount > 0;
+      if (_dataFilter == DataFilterTab.registryOnly && !hasRegistry) {
+        _dataFilter = DataFilterTab.all;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,30 +139,12 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // App Avatar
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: isSystem
-                    ? [Colors.blueGrey.shade600, Colors.blueGrey.shade800]
-                    : [colorScheme.primary, colorScheme.tertiary],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              app.name.isNotEmpty
-                  ? app.name.characters.first.toUpperCase()
-                  : 'A',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+          AppAvatar(
+            name: app.name,
+            isSystem: isSystem,
+            size: 64,
+            borderRadius: 16,
+            fontSize: 28,
           ),
           const SizedBox(width: 18),
           Expanded(
@@ -749,32 +743,7 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                     ),
                     title: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: item.isRegistryKey
-                                ? Colors.deepPurple.withValues(alpha: 0.16)
-                                : (item.isCacheLike
-                                    ? Colors.amber.withValues(alpha: 0.2)
-                                    : Colors.teal.withValues(alpha: 0.15)),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(
-                            item.category.shortLabel,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: item.isRegistryKey
-                                  ? Colors.deepPurple.shade800
-                                  : (item.isCacheLike
-                                      ? Colors.amber.shade900
-                                      : Colors.teal.shade800),
-                            ),
-                          ),
-                        ),
+                        DataCategoryBadge(item: item),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -843,7 +812,7 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
   ) {
     final selectedDeps =
         app.linuxDependencies.where((d) => d.selected).toList();
-    final cmdPreview = LinuxCommandHelper.buildUninstallCommand(
+    final cmdPreview = PlatformParsers.buildLinuxUninstallCommand(
       app: app,
       selectedDependencies: selectedDeps,
     ).join(' ');
@@ -988,29 +957,7 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                         ),
                         const SizedBox(width: 8),
                         Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: dep.isSafeToRemove
-                                  ? Colors.teal.withValues(alpha: 0.15)
-                                  : Colors.amber.withValues(alpha: 0.22),
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              dep.safetyBadgeText,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: dep.isSafeToRemove
-                                    ? Colors.teal.shade800
-                                    : Colors.amber.shade900,
-                              ),
-                            ),
-                          ),
+                          child: LinuxDepSafetyBadge(dependency: dep),
                         ),
                         const SizedBox(width: 8),
                         Text(
@@ -1030,43 +977,10 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                 },
               ),
               const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.terminal_rounded, size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: SelectableText(
-                        cmdPreview,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded, size: 18),
-                      tooltip: 'Copy Command',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: cmdPreview));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Copied Linux dependency removal command to clipboard',
-                            ),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
+              CommandPreviewBox(
+                command: cmdPreview,
+                copiedSnackMessage:
+                    'Copied Linux dependency removal command to clipboard',
               ),
             ],
           ],

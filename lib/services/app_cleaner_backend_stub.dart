@@ -1,6 +1,6 @@
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
-import 'linux_command_helper.dart';
+import '../utils/platform_parsers.dart';
 import 'web_mock_data.dart';
 
 /// Web-compatible backend (no `dart:io`) for debugging and previewing the complete
@@ -10,7 +10,6 @@ class AppCleanerPlatformBackend {
   List<OrphanLeftoverGroup>? _cachedMockOrphans;
 
   Future<List<InstalledApp>> scanInstalledApps({
-    bool includeSampleLinuxPreview = true,
     DesktopPlatformType? filterPlatform,
   }) async {
     _cachedMockApps ??= WebMockData.buildAllSampleApps();
@@ -125,7 +124,7 @@ class AppCleanerPlatformBackend {
         : <LinuxDependencyPackage>[];
 
     if (app.platform == DesktopPlatformType.linux || selectedDeps.isNotEmpty) {
-      final cmd = LinuxCommandHelper.buildUninstallCommand(
+      final cmd = PlatformParsers.buildLinuxUninstallCommand(
         app: app,
         selectedDependencies: selectedDeps,
       );

@@ -16,11 +16,9 @@ class AppCleanerService {
       : _backend = backend ?? AppCleanerPlatformBackend();
 
   Future<List<InstalledApp>> scanInstalledApps({
-    bool includeSampleLinuxPreview = false,
     DesktopPlatformType? filterPlatform,
   }) =>
       _backend.scanInstalledApps(
-        includeSampleLinuxPreview: includeSampleLinuxPreview,
         filterPlatform: filterPlatform,
       );
 

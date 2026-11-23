@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
 import '../utils/io_file_utils.dart';
+import '../utils/platform_parsers.dart';
 
 /// Scans Windows installed applications via Registry Uninstall keys and Appx/MSIX packages,
 /// distinguishes User Installed Apps vs System Apps, scans %APPDATA% & %LOCALAPPDATA% data/cache,
@@ -445,6 +446,10 @@ $results | ConvertTo-Json -Compress
     String keyPath, {
     List<String>? logs,
   }) async {
+    if (!PlatformParsers.isSafeWindowsRegistryKeyPath(keyPath)) {
+      logs?.add('Blocked deletion of protected system Registry path: $keyPath');
+      return false;
+    }
     try {
       // 1. Export safe backup to %TEMP%\AppCleaner_RegistryBackups
       final tempDir = Platform.environment['TEMP'] ?? r'C:\Windows\Temp';

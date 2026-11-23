@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/app_models.dart';
-import '../services/linux_command_helper.dart';
 import '../utils/format_utils.dart';
+import '../utils/platform_parsers.dart';
+import 'shared_badges.dart';
 
 /// Confirmation dialog for uninstalling an application, cleaning its associated
 /// data/leftovers (including Windows Registry keys), and (on Linux) selectively
@@ -52,7 +52,7 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
         (_removeSelectedLinuxDeps ? app.selectedLinuxDepsSizeBytes : 0);
 
     final linuxCmd = hasLinuxDeps || app.platform == DesktopPlatformType.linux
-        ? LinuxCommandHelper.buildUninstallCommand(
+        ? PlatformParsers.buildLinuxUninstallCommand(
             app: app,
             selectedDependencies:
                 _removeSelectedLinuxDeps ? selectedDeps : const [],
@@ -165,21 +165,7 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                               },
                               title: Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          colorScheme.surfaceContainerHighest,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      item.category.shortLabel,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ),
+                                  DataCategoryBadge(item: item),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -265,29 +251,10 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                                           ),
                                         ),
                                         const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: dep.isSafeToRemove
-                                                ? Colors.teal
-                                                    .withValues(alpha: 0.15)
-                                                : Colors.amber
-                                                    .withValues(alpha: 0.2),
-                                            borderRadius:
-                                                BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            dep.safetyBadgeText,
-                                            style: TextStyle(
-                                              fontSize: 10.5,
-                                              fontWeight: FontWeight.w600,
-                                              color: dep.isSafeToRemove
-                                                  ? Colors.teal.shade800
-                                                  : Colors.amber.shade900,
-                                            ),
+                                        Flexible(
+                                          child: LinuxDepSafetyBadge(
+                                            dependency: dep,
+                                            fontSize: 10.5,
                                           ),
                                         ),
                                         const SizedBox(width: 8),
@@ -314,50 +281,7 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                             ),
                             if (linuxCmd != null) ...[
                               const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.terminal, size: 16),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        linuxCmd,
-                                        style: const TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 11.5,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.copy, size: 16),
-                                      tooltip: 'Copy Uninstall Command',
-                                      visualDensity: VisualDensity.compact,
-                                      onPressed: () {
-                                        Clipboard.setData(
-                                          ClipboardData(text: linuxCmd),
-                                        );
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Copied Linux uninstall command to clipboard',
-                                            ),
-                                            duration: Duration(seconds: 2),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              CommandPreviewBox(command: linuxCmd),
                             ],
                           ],
                         )

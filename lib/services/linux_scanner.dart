@@ -3,7 +3,7 @@ import 'dart:io';
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
 import '../utils/io_file_utils.dart';
-import 'linux_command_helper.dart';
+import '../utils/platform_parsers.dart';
 import 'linux_dependency_analyzer.dart';
 
 /// Scans Linux installed applications (.desktop entries, dpkg/apt, pacman, dnf, flatpak, snap),
@@ -196,7 +196,7 @@ class LinuxAppScanner {
       return null;
     }
 
-    final fields = parseDesktopFileContent(content);
+    final fields = PlatformParsers.parseDesktopEntry(content);
     if (fields['NoDisplay']?.toLowerCase() == 'true' ||
         fields['Hidden']?.toLowerCase() == 'true') {
       return null;
@@ -294,9 +294,6 @@ class LinuxAppScanner {
       isRunning: isRunning,
     );
   }
-
-  static Map<String, String> parseDesktopFileContent(String content) =>
-      LinuxCommandHelper.parseDesktopFileContent(content);
 
   String _extractBinaryFromExec(String rawExec) {
     final cleaned = rawExec

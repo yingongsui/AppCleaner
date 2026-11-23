@@ -44,15 +44,6 @@ enum AppOriginType {
         return 'System App';
     }
   }
-
-  String get subtitle {
-    switch (this) {
-      case AppOriginType.userInstalled:
-        return 'Third-party or manually installed application';
-      case AppOriginType.systemApp:
-        return 'Pre-installed OS utility or core system component';
-    }
-  }
 }
 
 /// How the application was installed on the system.
@@ -110,27 +101,6 @@ enum DataCategory {
   logs,
   launchAgent,
   registry;
-
-  String get label {
-    switch (this) {
-      case DataCategory.cache:
-        return 'Cache & Temporary Files';
-      case DataCategory.preferences:
-        return 'Preferences & Configuration';
-      case DataCategory.appData:
-        return 'Application Support & Data';
-      case DataCategory.container:
-        return 'Sandbox & Containers';
-      case DataCategory.savedState:
-        return 'Saved State & Session Cookies';
-      case DataCategory.logs:
-        return 'Diagnostic & Runtime Logs';
-      case DataCategory.launchAgent:
-        return 'Startup & Desktop Entries';
-      case DataCategory.registry:
-        return 'Windows Registry Keys';
-    }
-  }
 
   String get shortLabel {
     switch (this) {
@@ -192,23 +162,6 @@ class AppDataItem {
       path.startsWith(r'HKCU\') ||
       path.startsWith(r'HKLM\') ||
       path.startsWith(r'HKEY_');
-
-  AppDataItem copyWith({
-    bool? selected,
-    int? sizeBytes,
-  }) {
-    return AppDataItem(
-      id: id,
-      name: name,
-      path: path,
-      category: category,
-      sizeBytes: sizeBytes ?? this.sizeBytes,
-      lastModified: lastModified,
-      isDirectory: isDirectory,
-      description: description,
-      selected: selected ?? this.selected,
-    );
-  }
 }
 
 /// Represents an additional library/dependency installed alongside a Linux package.
@@ -216,7 +169,7 @@ class LinuxDependencyPackage {
   final String packageName;
   final String version;
   final int sizeBytes;
-  final String packageManager; // 'apt', 'pacman', 'dnf', 'flatpak'
+  final String packageManager;
   final bool isAutoInstalled;
   final bool isExclusivelyRequired;
   final bool installedTogetherInHistory;
@@ -257,12 +210,11 @@ class LinuxDependencyPackage {
 class InstalledApp {
   final String id;
   final String name;
-  final String identifier; // Bundle ID, package name, or registry key
+  final String identifier;
   final String version;
   final String publisher;
   final String installPath;
   final String executablePath;
-  final String? iconPath;
   final AppOriginType origin;
   final InstallSource installSource;
   final DesktopPlatformType platform;
@@ -283,7 +235,6 @@ class InstalledApp {
     this.publisher = '',
     required this.installPath,
     this.executablePath = '',
-    this.iconPath,
     required this.origin,
     required this.installSource,
     required this.platform,

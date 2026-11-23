@@ -2,7 +2,7 @@ import 'dart:io';
 
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
-import 'linux_command_helper.dart';
+import '../utils/platform_parsers.dart';
 import 'linux_dependency_analyzer.dart';
 import 'linux_scanner.dart';
 import 'macos_scanner.dart';
@@ -32,7 +32,6 @@ class AppCleanerPlatformBackend {
         windowsScanner = windowsScanner ?? WindowsAppScanner();
 
   Future<List<InstalledApp>> scanInstalledApps({
-    bool includeSampleLinuxPreview = false,
     DesktopPlatformType? filterPlatform,
   }) async {
     List<InstalledApp> apps = [];
@@ -424,7 +423,7 @@ class AppCleanerPlatformBackend {
       return ok;
     }
 
-    final cmd = LinuxCommandHelper.buildUninstallCommand(
+    final cmd = PlatformParsers.buildLinuxUninstallCommand(
       app: app,
       selectedDependencies: selectedDependencies,
       usePkexec: app.installSource != InstallSource.flatpak,

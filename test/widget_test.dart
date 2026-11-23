@@ -1,7 +1,7 @@
 import 'package:app_cleaner/main.dart';
 import 'package:app_cleaner/models/app_models.dart';
 import 'package:app_cleaner/services/app_cleaner_service.dart';
-import 'package:app_cleaner/services/linux_command_helper.dart';
+import 'package:app_cleaner/utils/platform_parsers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -16,7 +16,6 @@ class FakeAppCleanerService extends AppCleanerService {
 
   @override
   Future<List<InstalledApp>> scanInstalledApps({
-    bool includeSampleLinuxPreview = false,
     DesktopPlatformType? filterPlatform,
   }) async {
     return List<InstalledApp>.from(mockApps);
@@ -76,7 +75,7 @@ void main() {
 </dict>
 </plist>
 ''';
-      final parsed = LinuxCommandHelper.parseXmlPlistString(samplePlist);
+      final parsed = PlatformParsers.parseXmlPlist(samplePlist);
       expect(parsed['CFBundleDisplayName'], 'Visual Studio Code');
       expect(parsed['CFBundleIdentifier'], 'com.microsoft.VSCode');
       expect(parsed['CFBundleShortVersionString'], '1.95.0');
@@ -91,7 +90,7 @@ Icon=vlc
 Type=Application
 Categories=AudioVideo;Player;Recorder;
 ''';
-      final fields = LinuxCommandHelper.parseDesktopFileContent(desktopContent);
+      final fields = PlatformParsers.parseDesktopEntry(desktopContent);
       expect(fields['Name'], 'VLC media player');
       expect(fields['Exec'], '/usr/bin/vlc --started-from-file %U');
       expect(fields['Categories'], 'AudioVideo;Player;Recorder;');
@@ -106,7 +105,7 @@ Requested-By: user (1000)
 Install: libobs0t64:amd64 (30.1.2-1, automatic), obs-plugins:amd64 (30.1.2-1, automatic), obs-studio:amd64 (30.1.2-1), libqrcodegencpp1:amd64 (1.8.0-1, automatic)
 End-Date: 2026-11-20  10:15:22
 ''';
-      final companions = LinuxCommandHelper.parseAptHistoryLogContent(
+      final companions = PlatformParsers.parseAptHistoryCompanions(
         aptLog,
         'obs-studio',
       );
@@ -140,7 +139,7 @@ End-Date: 2026-11-20  10:15:22
           selected: true,
         ),
       ];
-      final cmd = LinuxCommandHelper.buildUninstallCommand(
+      final cmd = PlatformParsers.buildLinuxUninstallCommand(
         app: app,
         selectedDependencies: deps,
       );
@@ -155,6 +154,35 @@ End-Date: 2026-11-20  10:15:22
           'obs-studio',
           'libobs0t64',
         ]),
+      );
+    });
+
+    test('Guards critical Windows Registry hives from accidental deletion', () {
+      expect(
+        PlatformParsers.isSafeWindowsRegistryKeyPath(r'HKCU\Software\Discord'),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.isSafeWindowsRegistryKeyPath(
+          r'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Discord',
+        ),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.isSafeWindowsRegistryKeyPath(r'HKCU\Software'),
+        isFalse,
+      );
+      expect(
+        PlatformParsers.isSafeWindowsRegistryKeyPath(
+          r'HKLM\Software\Microsoft\Windows',
+        ),
+        isFalse,
+      );
+      expect(
+        PlatformParsers.isSafeWindowsRegistryKeyPath(
+          r'HKLM\Software\WOW6432Node',
+        ),
+        isFalse,
       );
     });
   });

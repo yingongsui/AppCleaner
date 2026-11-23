@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
+import 'shared_badges.dart';
 
 /// Dedicated view for scanning, inspecting, and deleting orphaned leftover files
 /// and orphaned Windows Registry keys left behind by previously uninstalled applications.
@@ -357,28 +358,7 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
               ),
               title: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: item.isRegistryKey
-                          ? Colors.deepPurple.withValues(alpha: 0.16)
-                          : colorScheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                      item.category.shortLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: item.isRegistryKey
-                            ? Colors.deepPurple.shade800
-                            : colorScheme.onSecondaryContainer,
-                      ),
-                    ),
-                  ),
+                  DataCategoryBadge(item: item),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(

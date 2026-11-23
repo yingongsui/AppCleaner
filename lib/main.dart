@@ -6,6 +6,7 @@ import 'services/app_cleaner_service.dart';
 import 'utils/format_utils.dart';
 import 'widgets/app_detail_panel.dart';
 import 'widgets/orphan_leftovers_view.dart';
+import 'widgets/shared_badges.dart';
 import 'widgets/uninstall_confirm_dialog.dart';
 
 void main() {
@@ -1062,29 +1063,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
             : Colors.transparent,
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: isSystem
-                      ? [Colors.blueGrey.shade500, Colors.blueGrey.shade700]
-                      : [colorScheme.primary, colorScheme.tertiary],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                app.name.isNotEmpty
-                    ? app.name.characters.first.toUpperCase()
-                    : 'A',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 17,
-                ),
-              ),
-            ),
+            AppAvatar(name: app.name, isSystem: isSystem),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

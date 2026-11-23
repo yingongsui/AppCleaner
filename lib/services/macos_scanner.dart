@@ -4,7 +4,7 @@ import 'dart:io';
 import '../models/app_models.dart';
 import '../utils/format_utils.dart';
 import '../utils/io_file_utils.dart';
-import 'linux_command_helper.dart';
+import '../utils/platform_parsers.dart';
 
 /// Scans macOS applications (.app bundles), distinguishes User Apps vs System Apps,
 /// discovers associated data/cache/containers in ~/Library, and detects orphaned leftovers.
@@ -211,8 +211,7 @@ class MacOsAppScanner {
     final runningProcesses = await _fetchRunningProcessSnapshot();
 
     final seenPaths = <String>{};
-    final seenBundleIds = <String, InstalledApp>{};
-    final apps = <InstalledApp>[];
+    final candidates = <({String path, bool forceSystem})>[];
 
     for (final root in searchRoots) {
       final dir = Directory(root.path);
@@ -238,22 +237,37 @@ class MacOsAppScanner {
           seenPaths.add(resolved);
         } catch (_) {}
 
-        final app = await _inspectAppBundle(
-          appPath: path,
-          forceSystem: root.forceSystem,
-          caskTokens: caskNames,
-          runningProcessOutput: runningProcesses,
-        );
-        if (app != null) {
-          if (app.identifier.isNotEmpty &&
-              seenBundleIds.containsKey(app.identifier)) {
-            continue;
-          }
-          if (app.identifier.isNotEmpty) {
-            seenBundleIds[app.identifier] = app;
-          }
-          apps.add(app);
+        candidates.add((path: path, forceSystem: root.forceSystem));
+      }
+    }
+
+    // Inspect app bundles concurrently in bounded batches for fast startup scanning
+    final seenBundleIds = <String>{};
+    final apps = <InstalledApp>[];
+    const batchSize = 8;
+
+    for (var i = 0; i < candidates.length; i += batchSize) {
+      final chunk = candidates.sublist(
+        i,
+        (i + batchSize).clamp(0, candidates.length),
+      );
+      final inspected = await Future.wait(
+        chunk.map(
+          (c) => _inspectAppBundle(
+            appPath: c.path,
+            forceSystem: c.forceSystem,
+            caskTokens: caskNames,
+            runningProcessOutput: runningProcesses,
+          ),
+        ),
+      );
+
+      for (final app in inspected) {
+        if (app == null) continue;
+        if (app.identifier.isNotEmpty && !seenBundleIds.add(app.identifier)) {
+          continue;
         }
+        apps.add(app);
       }
     }
 
@@ -371,14 +385,11 @@ class MacOsAppScanner {
         }
       }
       final content = utf8.decode(bytes, allowMalformed: true);
-      return LinuxCommandHelper.parseXmlPlistString(content);
+      return PlatformParsers.parseXmlPlist(content);
     } catch (_) {
       return {};
     }
   }
-
-  static Map<String, String> parseXmlPlistString(String xml) =>
-      LinuxCommandHelper.parseXmlPlistString(xml);
 
   /// Scans all data, cache, config, containers, and launch agents associated with [app].
   Future<List<AppDataItem>> scanAppDataItems(InstalledApp app) async {
