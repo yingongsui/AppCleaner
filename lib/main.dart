@@ -170,7 +170,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       _operationLogs.clear();
       _totalFreedSessionBytes = 0;
     });
-    _showSnack('Activity history cleared.');
+    _showSnack('Activity history cleared.', tone: CapsuleToastTone.success);
   }
 
   Future<void> _loadInitialScan() async {
@@ -252,7 +252,10 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
 
     if (mounted) {
       setState(() => _isBatchScanningAllData = false);
-      _showSnack('Completed deep data scan for ${targets.length} applications.');
+      _showSnack(
+        'Completed deep data scan for ${targets.length} applications.',
+        tone: CapsuleToastTone.success,
+      );
     }
   }
 
@@ -449,18 +452,20 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     });
     // Persist history immediately to disk so it survives app restarts.
     _service.saveOperationHistory(_operationLogs);
-    _showSnack(result.summaryMessage);
+    final tone = !result.success
+        ? CapsuleToastTone.error
+        : (result.failedPaths.isNotEmpty
+            ? CapsuleToastTone.warning
+            : CapsuleToastTone.success);
+    _showSnack(result.summaryMessage, tone: tone);
   }
 
-  void _showSnack(String message) {
+  void _showSnack(
+    String message, {
+    CapsuleToastTone tone = CapsuleToastTone.info,
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    showCapsuleToast(context, message, tone: tone);
   }
 
   List<InstalledApp> get _filteredAndSortedApps {
@@ -1062,6 +1067,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                       setState(() => _selectedApp!.isRunning = false);
                       _showSnack(
                         'Terminated running process: ${_selectedApp!.name}',
+                        tone: CapsuleToastTone.success,
                       );
                     }
                   },

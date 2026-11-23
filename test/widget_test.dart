@@ -361,10 +361,20 @@ End-Date: 2026-11-20  10:15:22
     await tester.tap(find.text('Clear Cache'));
     await tester.pumpAndSettle();
 
-    // Cache item removed, preferences and registry items remain, AND history persisted!
+    // Cache item removed, preferences and registry items remain, history persisted, and floating capsule toast shown!
     expect(userApp.cacheSizeBytes, 0);
     expect(userApp.registryItemsCount, 1);
     expect(fakeService.savedHistory.length, 1);
+    expect(find.text('Cleaned 1 items.'), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.text('Cleaned 1 items.'),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Material && widget.shape is StadiumBorder,
+        ),
+      ),
+      findsOneWidget,
+    );
 
     // 4. Select AppCleaner itself and verify Self-Locked protection!
     await tester.tap(find.text('AppCleaner').last);

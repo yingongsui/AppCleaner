@@ -203,11 +203,12 @@ class CommandPreviewBox extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             onPressed: () {
               Clipboard.setData(ClipboardData(text: command));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(copiedSnackMessage),
-                  duration: const Duration(seconds: 2),
-                ),
+              showCapsuleToast(
+                context,
+                copiedSnackMessage,
+                tone: CapsuleToastTone.success,
+                icon: Icons.check_rounded,
+                duration: const Duration(seconds: 2),
               );
             },
           ),
@@ -215,4 +216,108 @@ class CommandPreviewBox extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Visual tone for bottom floating capsule notifications.
+enum CapsuleToastTone {
+  info,
+  success,
+  warning,
+  error,
+}
+
+/// Displays a sleek floating pill/capsule notification centered near the bottom
+/// of the window, hugging its text content instead of stretching full-width.
+void showCapsuleToast(
+  BuildContext context,
+  String message, {
+  CapsuleToastTone tone = CapsuleToastTone.info,
+  IconData? icon,
+  Duration duration = const Duration(seconds: 3),
+}) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
+
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final bgColor = isDark ? const Color(0xFF263042) : const Color(0xFF1E293B);
+  final borderColor = Colors.white.withValues(alpha: isDark ? 0.14 : 0.10);
+
+  final (IconData defaultIcon, Color accentColor) = switch (tone) {
+    CapsuleToastTone.success => (
+        Icons.check_circle_rounded,
+        const Color(0xFF34D399),
+      ),
+    CapsuleToastTone.warning => (
+        Icons.warning_amber_rounded,
+        const Color(0xFFFBBF24),
+      ),
+    CapsuleToastTone.error => (
+        Icons.error_rounded,
+        const Color(0xFFF87171),
+      ),
+    CapsuleToastTone.info => (
+        Icons.info_rounded,
+        const Color(0xFF60A5FA),
+      ),
+  };
+
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      padding: EdgeInsets.zero,
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      hitTestBehavior: HitTestBehavior.translucent,
+      dismissDirection: DismissDirection.down,
+      duration: duration,
+      content: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Material(
+              color: bgColor,
+              elevation: 8,
+              shadowColor: Colors.black.withValues(alpha: isDark ? 0.45 : 0.24),
+              shape: StadiumBorder(
+                side: BorderSide(color: borderColor, width: 1),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: messenger.hideCurrentSnackBar,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon ?? defaultIcon, size: 18, color: accentColor),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFF8FAFC),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
