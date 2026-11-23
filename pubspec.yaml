@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
+  material_ui: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -18,3 +18,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/app_icon.png
+    - assets/app_icon_transparent.png
+    - assets/app_icon.svg
+    - assets/app_icon_transparent.svg

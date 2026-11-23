@@ -163,9 +163,11 @@ jobs:
           mkdir -p "${PKG_ROOT}/opt/app_cleaner"
           mkdir -p "${PKG_ROOT}/usr/bin"
           mkdir -p "${PKG_ROOT}/usr/share/applications"
+          mkdir -p "${PKG_ROOT}/usr/share/icons/hicolor/512x512/apps"
 
           cp -r build/linux/x64/release/bundle/* "${PKG_ROOT}/opt/app_cleaner/"
           chmod +x "${PKG_ROOT}/opt/app_cleaner/app_cleaner"
+          cp assets/app_icon.png "${PKG_ROOT}/usr/share/icons/hicolor/512x512/apps/app_cleaner.png"
 
           ln -s /opt/app_cleaner/app_cleaner "${PKG_ROOT}/usr/bin/app_cleaner"
 
@@ -185,7 +187,7 @@ jobs:
           Name=AppCleaner
           Comment=Uninstall apps, clear app data/cache, and clean orphaned leftovers
           Exec=/opt/app_cleaner/app_cleaner
-          Icon=utilities-system-monitor
+          Icon=app_cleaner
           Terminal=false
           Type=Application
           Categories=System;Utility;

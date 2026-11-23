@@ -23,6 +23,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\build\installer
 OutputBaseFilename={#OutputFileName}
+SetupIconFile=runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\app_cleaner.exe
 
 [Languages]

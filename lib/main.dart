@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'models/app_models.dart';
 import 'services/app_cleaner_service.dart';
@@ -494,21 +494,13 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                   padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              colorScheme.primary,
-                              colorScheme.tertiary,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.cleaning_services_rounded,
-                          color: Colors.white,
-                          size: 22,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Image.asset(
+                          'assets/app_icon.png',
+                          width: 42,
+                          height: 42,
+                          filterQuality: FilterQuality.high,
                         ),
                       ),
                       const SizedBox(width: 12),

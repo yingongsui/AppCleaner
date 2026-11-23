@@ -2,8 +2,8 @@ import 'package:app_cleaner/main.dart';
 import 'package:app_cleaner/models/app_models.dart';
 import 'package:app_cleaner/services/app_cleaner_service.dart';
 import 'package:app_cleaner/utils/platform_parsers.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 class FakeAppCleanerService extends AppCleanerService {
   final List<InstalledApp> mockApps;
