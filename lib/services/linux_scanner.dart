@@ -779,6 +779,7 @@ class LinuxAppScanner {
                 isDirectory: stat.type == FileSystemEntityType.directory,
                 description:
                     'Orphaned directory not matching any installed Linux package or .desktop entry',
+                selected: false,
               ),
             );
       }

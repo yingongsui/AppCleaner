@@ -602,6 +602,7 @@ $results | ConvertTo-Json -Compress
                 isDirectory: stat.type == FileSystemEntityType.directory,
                 description:
                     'Orphaned directory not matching any installed Windows program',
+                selected: false,
               ),
             );
       }
@@ -638,6 +639,7 @@ $results | ConvertTo-Json -Compress
                   isDirectory: false,
                   description:
                       'Orphaned Windows Registry hive in HKCU\\Software (${info.valueCount} entries)',
+                  selected: false,
                 ),
               );
         }

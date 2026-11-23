@@ -91,31 +91,282 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
       }
     }).toList();
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final panelWidth = constraints.maxWidth;
+        final isCompact = panelWidth < 560;
+
+        return SizedBox.expand(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(isCompact ? 16 : 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. App Header Card
+                _buildHeaderCard(context, app, panelWidth),
+                const SizedBox(height: 16),
+
+                // 2. Android-Style Storage Breakdown & Reset Actions Card
+                _buildAndroidStorageCard(context, app, panelWidth),
+                const SizedBox(height: 16),
+
+                // 3. Associated Data, Config, Cache, Registry & Leftover Files Table
+                _buildDataItemsCard(context, app, filteredDataItems, panelWidth),
+
+                // 4. Linux Additional Installed Libraries & Dependencies Card
+                if (app.platform == DesktopPlatformType.linux ||
+                    app.linuxDependencies.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _buildLinuxDependenciesCard(
+                    context,
+                    app,
+                    colorScheme,
+                    theme,
+                    panelWidth,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHeaderCard(
+    BuildContext context,
+    InstalledApp app,
+    double panelWidth,
+  ) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isSystem = app.isSystemApp;
+    final isCompact = panelWidth < 540;
+
+    final stopProcessButton = OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: theme.brightness == Brightness.dark
+            ? Colors.orange.shade300
+            : Colors.orange.shade800,
+        visualDensity: VisualDensity.compact,
+      ),
+      onPressed: widget.onTerminateProcess,
+      icon: const Icon(Icons.stop_circle_outlined, size: 16),
+      label: const Text('Stop Process'),
+    );
+
+    final revealButton = TextButton.icon(
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      ),
+      onPressed: () => widget.onRevealPath(app.installPath),
+      icon: const Icon(Icons.open_in_new_rounded, size: 15),
+      label: const Text('Reveal Location'),
+    );
+
+    final badgesWrap = Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        _buildOriginBadge(context, app.origin),
+        _buildBadge(
+          label: app.installSource.label,
+          bgColor: colorScheme.secondaryContainer,
+          fgColor: colorScheme.onSecondaryContainer,
+          icon: Icons.inventory_2_outlined,
+        ),
+        if (app.isSelfApp)
+          _buildBadge(
+            label: 'This App · Self-Locked',
+            bgColor: Colors.blue.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.28 : 0.16,
+            ),
+            fgColor: theme.brightness == Brightness.dark
+                ? Colors.lightBlue.shade200
+                : Colors.blue.shade800,
+            icon: Icons.lock_outline_rounded,
+          ),
+        if (app.isRunning)
+          _buildBadge(
+            label: 'Running',
+            bgColor: Colors.green.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.25 : 0.16,
+            ),
+            fgColor: theme.brightness == Brightness.dark
+                ? Colors.green.shade300
+                : Colors.green.shade800,
+            icon: Icons.bolt_rounded,
+          ),
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.all(isCompact ? 16 : 20),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. App Header Card
-          _buildHeaderCard(context, app),
-          const SizedBox(height: 18),
-
-          // 2. Android-Style Storage Breakdown & Reset Actions Card
-          _buildAndroidStorageCard(context, app),
-          const SizedBox(height: 18),
-
-          // 3. Associated Data, Config, Cache, Registry & Leftover Files Table
-          _buildDataItemsCard(context, app, filteredDataItems),
-
-          // 4. Linux Additional Installed Libraries & Dependencies Card
-          if (app.platform == DesktopPlatformType.linux ||
-              app.linuxDependencies.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            _buildLinuxDependenciesCard(
-              context,
-              app,
-              colorScheme,
-              theme,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // App Avatar (real native icon / bundled AppCleaner icon)
+              AppAvatar(
+                name: app.name,
+                isSystem: isSystem,
+                isSelfApp: app.isSelfApp,
+                iconBytes: app.iconBytes,
+                size: isCompact ? 50 : 64,
+                borderRadius: isCompact ? 12 : 14,
+                fontSize: isCompact ? 22 : 28,
+              ),
+              SizedBox(width: isCompact ? 14 : 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          app.name,
+                          style: (isCompact
+                                  ? theme.textTheme.titleLarge
+                                  : theme.textTheme.headlineSmall)
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        if (app.version.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'v${app.version}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (!isCompact) ...[
+                      const SizedBox(height: 8),
+                      badgesWrap,
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  IconButton.outlined(
+                    tooltip: 'Rescan application data & leftovers',
+                    onPressed:
+                        widget.isScanningData ? null : widget.onRescanAppData,
+                    icon: widget.isScanningData
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh_rounded),
+                  ),
+                  if (!isCompact && app.isRunning && !app.isSelfApp) ...[
+                    const SizedBox(height: 8),
+                    stopProcessButton,
+                  ],
+                ],
+              ),
+            ],
+          ),
+          if (isCompact) ...[
+            const SizedBox(height: 10),
+            badgesWrap,
+          ],
+          const SizedBox(height: 12),
+          Divider(
+            height: 1,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+          ),
+          const SizedBox(height: 10),
+          SelectableText(
+            'ID: ${app.identifier}'
+            '${app.publisher.isNotEmpty ? "  ·  Publisher: ${app.publisher}" : ""}'
+            '${app.linuxPackageName != null ? "  ·  Package: ${app.linuxPackageName}" : ""}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (!isCompact)
+            Row(
+              children: [
+                Icon(
+                  Icons.folder_outlined,
+                  size: 15,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SelectableText(
+                    app.installPath,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                revealButton,
+              ],
+            )
+          else ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.folder_outlined,
+                    size: 15,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SelectableText(
+                    app.installPath,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                revealButton,
+                if (app.isRunning && !app.isSelfApp) stopProcessButton,
+              ],
             ),
           ],
         ],
@@ -123,181 +374,15 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
     );
   }
 
-  Widget _buildHeaderCard(BuildContext context, InstalledApp app) {
+  Widget _buildAndroidStorageCard(
+    BuildContext context,
+    InstalledApp app,
+    double panelWidth,
+  ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isSystem = app.isSystemApp;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // App Avatar (real native icon / bundled AppCleaner icon)
-          AppAvatar(
-            name: app.name,
-            isSystem: isSystem,
-            isSelfApp: app.isSelfApp,
-            iconBytes: app.iconBytes,
-            size: 64,
-            borderRadius: 14,
-            fontSize: 28,
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      app.name,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (app.version.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          'v${app.version}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    _buildOriginBadge(context, app.origin),
-                    _buildBadge(
-                      label: app.installSource.label,
-                      bgColor: colorScheme.secondaryContainer,
-                      fgColor: colorScheme.onSecondaryContainer,
-                      icon: Icons.inventory_2_outlined,
-                    ),
-                    if (app.isSelfApp)
-                      _buildBadge(
-                        label: 'This App · Self-Locked',
-                        bgColor: Colors.blue.withValues(
-                          alpha: theme.brightness == Brightness.dark
-                              ? 0.28
-                              : 0.16,
-                        ),
-                        fgColor: theme.brightness == Brightness.dark
-                            ? Colors.lightBlue.shade200
-                            : Colors.blue.shade800,
-                        icon: Icons.lock_outline_rounded,
-                      ),
-                    if (app.isRunning)
-                      _buildBadge(
-                        label: 'Running',
-                        bgColor: Colors.green.withValues(
-                          alpha: theme.brightness == Brightness.dark
-                              ? 0.25
-                              : 0.16,
-                        ),
-                        fgColor: theme.brightness == Brightness.dark
-                            ? Colors.green.shade300
-                            : Colors.green.shade800,
-                        icon: Icons.bolt_rounded,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SelectableText(
-                  'ID: ${app.identifier}'
-                  '${app.publisher.isNotEmpty ? "  ·  Publisher: ${app.publisher}" : ""}'
-                  '${app.linuxPackageName != null ? "  ·  Package: ${app.linuxPackageName}" : ""}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.folder_outlined,
-                      size: 15,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: SelectableText(
-                        app.installPath,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => widget.onRevealPath(app.installPath),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 15),
-                      label: const Text('Reveal Location'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IconButton.outlined(
-                tooltip: 'Rescan application data & leftovers',
-                onPressed:
-                    widget.isScanningData ? null : widget.onRescanAppData,
-                icon: widget.isScanningData
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh_rounded),
-              ),
-              if (app.isRunning && !app.isSelfApp) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: theme.brightness == Brightness.dark
-                        ? Colors.orange.shade300
-                        : Colors.orange.shade800,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: widget.onTerminateProcess,
-                  icon: const Icon(Icons.stop_circle_outlined, size: 16),
-                  label: const Text('Stop Process'),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAndroidStorageCard(BuildContext context, InstalledApp app) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final isCompact = panelWidth < 540;
+    final useTwoByTwoGrid = panelWidth < 680;
 
     final appBytes = app.appSizeBytes;
     final userDataBytes = app.userDataSizeBytes;
@@ -314,8 +399,42 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
         ? ((cacheBytes / totalBytes) * 1000).round().clamp(40, 1000)
         : 0;
 
+    final metricBoxes = [
+      _buildStorageMetricBox(
+        context: context,
+        dotColor: colorScheme.primary,
+        title: 'App Binary (App)',
+        value: FormatUtils.formatBytes(appBytes),
+        subtitle: 'Executable & bundled assets',
+      ),
+      _buildStorageMetricBox(
+        context: context,
+        dotColor: Colors.teal.shade500,
+        title: 'User Data & Registry',
+        value: FormatUtils.formatBytes(userDataBytes),
+        subtitle: app.registryItemsCount > 0
+            ? 'Profiles, settings & ${app.registryItemsCount} Registry keys'
+            : 'Accounts, preferences & containers',
+      ),
+      _buildStorageMetricBox(
+        context: context,
+        dotColor: Colors.amber.shade600,
+        title: 'Cache & Logs (Cache)',
+        value: FormatUtils.formatBytes(cacheBytes),
+        subtitle: 'Temporary cache, state & logs',
+      ),
+      _buildStorageMetricBox(
+        context: context,
+        dotColor: colorScheme.error,
+        title: 'Selected for Cleanup',
+        value: FormatUtils.formatBytes(app.selectedDataSizeBytes),
+        subtitle:
+            '${app.dataItems.where((i) => i.selected).length}/${app.dataItems.length} items checked',
+      ),
+    ];
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isCompact ? 16 : 20),
       decoration: BoxDecoration(
         color: colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
@@ -324,33 +443,66 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.pie_chart_rounded,
-                color: colorScheme.primary,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Storage Breakdown & Android-Style Data Reset (Keep App Installed)',
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+          if (!isCompact)
+            Row(
+              children: [
+                Icon(
+                  Icons.pie_chart_rounded,
+                  color: colorScheme.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Storage Breakdown & Android-Style Data Reset (Keep App Installed)',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Total Footprint: ${FormatUtils.formatBytes(totalBytes)}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.primary,
+                const SizedBox(width: 12),
+                Text(
+                  'Total Footprint: ${FormatUtils.formatBytes(totalBytes)}',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.pie_chart_rounded,
+                      color: colorScheme.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Storage Breakdown & Data Reset',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Total Footprint: ${FormatUtils.formatBytes(totalBytes)}',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
           const SizedBox(height: 14),
 
           // Visual proportional storage bar
@@ -380,53 +532,39 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
           ),
           const SizedBox(height: 16),
 
-          // 4 Storage metric boxes
-          Row(
-            children: [
-              Expanded(
-                child: _buildStorageMetricBox(
-                  context: context,
-                  dotColor: colorScheme.primary,
-                  title: 'App Binary (App)',
-                  value: FormatUtils.formatBytes(appBytes),
-                  subtitle: 'Executable & bundled assets',
+          // 4 Storage metric boxes (4-up on wide screens, 2x2 grid on half-screen)
+          if (!useTwoByTwoGrid)
+            Row(
+              children: [
+                Expanded(child: metricBoxes[0]),
+                const SizedBox(width: 12),
+                Expanded(child: metricBoxes[1]),
+                const SizedBox(width: 12),
+                Expanded(child: metricBoxes[2]),
+                const SizedBox(width: 12),
+                Expanded(child: metricBoxes[3]),
+              ],
+            )
+          else
+            Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: metricBoxes[0]),
+                    const SizedBox(width: 10),
+                    Expanded(child: metricBoxes[1]),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStorageMetricBox(
-                  context: context,
-                  dotColor: Colors.teal.shade500,
-                  title: 'User Data & Registry',
-                  value: FormatUtils.formatBytes(userDataBytes),
-                  subtitle: app.registryItemsCount > 0
-                      ? 'Profiles, settings & ${app.registryItemsCount} Registry keys'
-                      : 'Accounts, preferences & containers',
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: metricBoxes[2]),
+                    const SizedBox(width: 10),
+                    Expanded(child: metricBoxes[3]),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStorageMetricBox(
-                  context: context,
-                  dotColor: Colors.amber.shade600,
-                  title: 'Cache & Logs (Cache)',
-                  value: FormatUtils.formatBytes(cacheBytes),
-                  subtitle: 'Temporary cache, state & logs',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStorageMetricBox(
-                  context: context,
-                  dotColor: colorScheme.error,
-                  title: 'Selected for Cleanup',
-                  value: FormatUtils.formatBytes(app.selectedDataSizeBytes),
-                  subtitle:
-                      '${app.dataItems.where((i) => i.selected).length}/${app.dataItems.length} items checked',
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
           const SizedBox(height: 18),
           const Divider(height: 1),
           const SizedBox(height: 16),
@@ -595,9 +733,11 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
     BuildContext context,
     InstalledApp app,
     List<AppDataItem> filteredItems,
+    double panelWidth,
   ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isCompact = panelWidth < 540;
     final hasRegistryItems =
         app.platform == DesktopPlatformType.windows || app.registryItemsCount > 0;
 
@@ -612,7 +752,7 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
         side: BorderSide(color: colorScheme.outlineVariant),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.all(isCompact ? 16 : 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -647,12 +787,20 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
             ),
             const SizedBox(height: 12),
             SegmentedButton<DataFilterTab>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+              ),
               segments: availableTabs
                   .map(
                     (tab) => ButtonSegment<DataFilterTab>(
                       value: tab,
                       label: Text(
                         tab.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
@@ -853,13 +1001,34 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
     InstalledApp app,
     ColorScheme colorScheme,
     ThemeData theme,
+    double panelWidth,
   ) {
+    final isCompact = panelWidth < 540;
     final selectedDeps =
         app.linuxDependencies.where((d) => d.selected).toList();
     final cmdPreview = PlatformParsers.buildLinuxUninstallCommand(
       app: app,
       selectedDependencies: selectedDeps,
     ).join(' ');
+
+    final selectedPill = Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        '${selectedDeps.length} selected · ${FormatUtils.formatBytes(app.selectedLinuxDepsSizeBytes)}',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+          color: colorScheme.onPrimaryContainer,
+        ),
+      ),
+    );
 
     return Material(
       color: colorScheme.surface,
@@ -868,11 +1037,12 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
         side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.4)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.all(isCompact ? 16 : 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
@@ -906,27 +1076,16 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${selectedDeps.length} selected · ${FormatUtils.formatBytes(app.selectedLinuxDepsSizeBytes)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ),
+                if (!isCompact) ...[
+                  const SizedBox(width: 12),
+                  selectedPill,
+                ],
               ],
             ),
+            if (isCompact) ...[
+              const SizedBox(height: 10),
+              selectedPill,
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -1065,12 +1224,16 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
         children: [
           Icon(icon, size: 13, color: fgColor),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.bold,
-              color: fgColor,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: fgColor,
+              ),
             ),
           ),
         ],

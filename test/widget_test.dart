@@ -341,9 +341,13 @@ End-Date: 2026-11-20  10:15:22
     await tester.pumpWidget(AppCleanerApp(service: fakeService));
     await tester.pumpAndSettle();
 
-    // 1. Default filter is User Installed apps (2 user apps including self, 1 system app)
-    expect(find.text('User Apps (2)'), findsOneWidget);
-    expect(find.text('System Apps (1)'), findsOneWidget);
+    // 1. Default filter is User Installed apps (2-line segments: title on top, count below)
+    expect(find.text('User Apps'), findsOneWidget);
+    expect(find.text('System Apps'), findsOneWidget);
+    expect(find.text('All'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
     expect(find.text('Self-Locked'), findsOneWidget);
 
     // Select TestStudio Pro explicitly (since AppCleaner sorts alphabetically first)
@@ -376,22 +380,85 @@ End-Date: 2026-11-20  10:15:22
       findsOneWidget,
     );
 
-    // 4. Select AppCleaner itself and verify Self-Locked protection!
+    // 4. Select AppCleaner itself and verify Self-Locked protection & top-aligned detail pane!
     await tester.tap(find.text('AppCleaner').last);
     await tester.pumpAndSettle();
     expect(find.text('AppCleaner (Self-Locked)'), findsOneWidget);
     expect(find.text('Stop Process'), findsNothing);
+    // Detail header card should be top-aligned (near y=0, not vertically centered)
+    final detailVersionTop = tester.getTopLeft(find.text('v1.0.0')).dy;
+    expect(detailVersionTop, lessThan(120));
 
     // 5. Switch to System Apps filter and verify Safari is shown
-    await tester.tap(find.text('System Apps (1)'));
+    await tester.tap(find.text('System Apps'));
     await tester.pumpAndSettle();
     expect(find.text('Safari'), findsWidgets);
     expect(find.text('System App (Protected)'), findsOneWidget);
 
-    // 6. Switch to Orphaned Leftovers tab and verify layout renders cleanly
+    // 6. Switch to Orphaned Leftovers tab and verify items default to deselected (0 items)
     await tester.tap(find.text('Orphaned Leftovers'));
     await tester.pumpAndSettle();
     expect(find.text('OldUninstalledApp'), findsOneWidget);
     expect(find.text('15.0 MB'), findsWidgets);
+    expect(find.text('Clean Selected (0 items · 0 B)'), findsOneWidget);
+  });
+
+  testWidgets('Half-screen compact layout renders cleanly without overflow and top-aligns details',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(740, 860);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final fakeService = FakeAppCleanerService(
+      mockApps: [
+        InstalledApp(
+          id: 'self:appcleaner',
+          name: 'AppCleaner',
+          identifier: 'com.yin.appcleaner',
+          version: '1.0.0',
+          publisher: 'Yin',
+          installPath: '/Applications/AppCleaner.app',
+          origin: AppOriginType.userInstalled,
+          installSource: InstallSource.appBundle,
+          platform: DesktopPlatformType.macos,
+          appSizeBytes: 22 * 1024 * 1024,
+          isSelfApp: true,
+          isRunning: true,
+          dataScanned: true,
+        ),
+      ],
+      mockOrphans: [
+        OrphanLeftoverGroup(
+          id: 'softdeluxe',
+          suspectedAppName: 'Softdeluxe',
+          identifier: 'softdeluxe',
+          platform: DesktopPlatformType.macos,
+          confidenceReason: 'No matching application found in /Applications',
+          items: [
+            AppDataItem(
+              id: '/Users/yin/Library/Application Support/Softdeluxe',
+              name: 'Softdeluxe',
+              path: '/Users/yin/Library/Application Support/Softdeluxe',
+              category: DataCategory.appData,
+              sizeBytes: 556 * 1024,
+              selected: true,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(AppCleanerApp(service: fakeService));
+    await tester.pumpAndSettle();
+
+    // Compact rail is active, detail header sits near the top (top-aligned, not centered)
+    final versionTop = tester.getTopLeft(find.text('v1.0.0')).dy;
+    expect(versionTop, lessThan(120));
+
+    // Switch to Orphaned Leftovers via compact rail icon and confirm clean half-screen layout + default deselected
+    await tester.tap(find.byIcon(Icons.auto_delete_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Orphaned Leftovers Scanner'), findsOneWidget);
+    expect(find.text('Clean Selected (0 items · 0 B)'), findsOneWidget);
   });
 }

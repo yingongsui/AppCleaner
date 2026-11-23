@@ -927,7 +927,7 @@ class MacOsAppScanner {
                 isDirectory: stat.type == FileSystemEntityType.directory,
                 description:
                     'Orphaned ${scanDir.category.shortLabel} with no matching installed app',
-                selected: true,
+                selected: false,
               ),
             );
       }

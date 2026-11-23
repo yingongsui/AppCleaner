@@ -512,6 +512,7 @@ class WebMockData {
             sizeBytes: 412 * 1024 * 1024,
             lastModified: DateTime.now().subtract(const Duration(days: 15)),
             description: 'Orphaned application support directory',
+            selected: false,
           ),
           AppDataItem(
             id: '/Users/yin/Library/Caches/com.spotify.client',
@@ -521,6 +522,7 @@ class WebMockData {
             sizeBytes: 1260 * 1024 * 1024,
             lastModified: DateTime.now().subtract(const Duration(days: 15)),
             description: 'Orphaned offline audio cache',
+            selected: false,
           ),
           AppDataItem(
             id: '/Users/yin/Library/Preferences/com.spotify.client.plist',
@@ -531,6 +533,7 @@ class WebMockData {
             isDirectory: false,
             lastModified: DateTime.now().subtract(const Duration(days: 16)),
             description: 'Orphaned preference property list (.plist)',
+            selected: false,
           ),
         ],
       ),
@@ -550,6 +553,7 @@ class WebMockData {
             sizeBytes: 64 * 1024 * 1024,
             lastModified: DateTime.now().subtract(const Duration(days: 24)),
             description: 'Orphaned GIMP brushes, workspace layout & plugin config',
+            selected: false,
           ),
           AppDataItem(
             id: '/home/user/.cache/gimp',
@@ -559,6 +563,7 @@ class WebMockData {
             sizeBytes: 215 * 1024 * 1024,
             lastModified: DateTime.now().subtract(const Duration(days: 24)),
             description: 'Orphaned GIMP swap & thumbnail cache',
+            selected: false,
           ),
         ],
       ),
@@ -578,6 +583,7 @@ class WebMockData {
             sizeBytes: 38 * 1024 * 1024,
             lastModified: DateTime.now().subtract(const Duration(days: 30)),
             description: 'Orphaned VLC shader cache & configuration in %APPDATA%',
+            selected: false,
           ),
           AppDataItem(
             id: r'reg:HKCU\Software\VideoLAN\VLC',
@@ -589,6 +595,7 @@ class WebMockData {
             lastModified: DateTime.now().subtract(const Duration(days: 30)),
             description:
                 'Orphaned Windows Registry hive in HKCU\\Software (14 entries)',
+            selected: false,
           ),
           AppDataItem(
             id: r'reg:HKLM\Software\WOW6432Node\VideoLAN\VLC',
@@ -600,6 +607,7 @@ class WebMockData {
             lastModified: DateTime.now().subtract(const Duration(days: 30)),
             description:
                 'Orphaned 32-bit Machine Registry hive in HKLM\\Software\\WOW6432Node',
+            selected: false,
           ),
         ],
       ),

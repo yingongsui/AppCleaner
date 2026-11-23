@@ -269,6 +269,12 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
         );
       }
       final groups = await _service.scanOrphanedLeftovers(_apps);
+      // Always start orphaned leftovers deselected so users explicitly opt in.
+      for (final group in groups) {
+        for (final item in group.items) {
+          item.selected = false;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _orphanGroups = groups;
@@ -516,197 +522,92 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
         _apps.where((a) => a.origin == AppOriginType.systemApp).length;
 
     return Scaffold(
-      body: Row(
-        children: [
-          // Left Navigation Rail & System Summary Sidebar
-          Container(
-            width: 245,
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerLow,
-              border: Border(
-                right: BorderSide(color: colorScheme.outlineVariant),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompactRail = constraints.maxWidth < 1080;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (isCompactRail)
+                _buildCompactRail(
+                  context,
+                  userAppsCount: userAppsCount,
+                  systemAppsCount: systemAppsCount,
+                )
+              else
+                _buildFullSidebar(
+                  context,
+                  theme: theme,
+                  colorScheme: colorScheme,
+                  userAppsCount: userAppsCount,
+                  systemAppsCount: systemAppsCount,
+                ),
+
+              // Main Content Area
+              Expanded(
+                child: _buildActiveSectionContent(
+                  context,
+                  userAppsCount: userAppsCount,
+                  systemAppsCount: systemAppsCount,
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFullSidebar(
+    BuildContext context, {
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required int userAppsCount,
+    required int systemAppsCount,
+  }) {
+    return Container(
+      width: 236,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        border: Border(
+          right: BorderSide(color: colorScheme.outlineVariant),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Brand Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+            child: Row(
               children: [
-                // Brand Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(11),
-                        child: Image.asset(
-                          'assets/app_icon.png',
-                          width: 42,
-                          height: 42,
-                          filterQuality: FilterQuality.high,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'AppCleaner',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              kIsWeb
-                                  ? 'Cross-Platform Web UI'
-                                  : '${DesktopPlatformType.current.label} Uninstaller & Cleaner',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 11,
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: Image.asset(
+                    'assets/app_icon.png',
+                    width: 42,
+                    height: 42,
+                    filterQuality: FilterQuality.high,
                   ),
                 ),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-
-                // Navigation buttons
-                _buildSidebarNavItem(
-                  section: NavigationSection.apps,
-                  icon: Icons.apps_rounded,
-                  title: 'Installed Apps',
-                  subtitle: 'User $userAppsCount · System $systemAppsCount',
-                ),
-                _buildSidebarNavItem(
-                  section: NavigationSection.orphanLeftovers,
-                  icon: Icons.auto_delete_rounded,
-                  title: 'Orphaned Leftovers',
-                  subtitle: _orphanGroups.isEmpty
-                      ? 'Scan files & Registry keys'
-                      : '${_orphanGroups.length} leftover groups found',
-                  onTapExtra: () {
-                    if (_orphanGroups.isEmpty && !_isScanningOrphans) {
-                      _scanOrphanLeftovers();
-                    }
-                  },
-                ),
-                _buildSidebarNavItem(
-                  section: NavigationSection.operationLogs,
-                  icon: Icons.history_rounded,
-                  title: 'Activity History',
-                  subtitle:
-                      'Freed ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
-                ),
-
-                const Spacer(),
-
-                // Web UI Debug Platform Switcher (when running on Chrome / Web Server)
-                if (kIsWeb)
-                  Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.tertiaryContainer,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.web_rounded,
-                              size: 16,
-                              color: colorScheme.onTertiaryContainer,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Web UI Debug Mode',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: colorScheme.onTertiaryContainer,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Preview platform workflows in browser:',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            color: colorScheme.onTertiaryContainer,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            ChoiceChip(
-                              label: const Text(
-                                'All OS',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              selected: _webDebugPlatformFilter == null,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) {
-                                setState(() => _webDebugPlatformFilter = null);
-                                _scanInstalledApps();
-                              },
-                            ),
-                            ...DesktopPlatformType.values.map(
-                              (p) => ChoiceChip(
-                                label: Text(
-                                  p.label,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                selected: _webDebugPlatformFilter == p,
-                                visualDensity: VisualDensity.compact,
-                                onSelected: (_) {
-                                  setState(() => _webDebugPlatformFilter = p);
-                                  _scanInstalledApps();
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // Total Freed Space Card
-                Container(
-                  margin: const EdgeInsets.all(14),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Total Space Freed',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: colorScheme.onPrimaryContainer,
+                        'AppCleaner',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
-                        FormatUtils.formatBytes(_totalFreedSessionBytes),
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onPrimaryContainer,
+                        kIsWeb
+                            ? 'Cross-Platform Web UI'
+                            : '${DesktopPlatformType.current.label} Uninstaller & Cleaner',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -715,16 +616,286 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
               ],
             ),
           ),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
 
-          // Main Content Area
-          Expanded(
-            child: _buildActiveSectionContent(
-              context,
-              userAppsCount: userAppsCount,
-              systemAppsCount: systemAppsCount,
+          // Navigation buttons
+          _buildSidebarNavItem(
+            section: NavigationSection.apps,
+            icon: Icons.apps_rounded,
+            title: 'Installed Apps',
+            subtitle: 'User $userAppsCount · System $systemAppsCount',
+          ),
+          _buildSidebarNavItem(
+            section: NavigationSection.orphanLeftovers,
+            icon: Icons.auto_delete_rounded,
+            title: 'Orphaned Leftovers',
+            subtitle: _orphanGroups.isEmpty
+                ? 'Scan files & Registry keys'
+                : '${_orphanGroups.length} leftover groups found',
+            onTapExtra: () {
+              if (_orphanGroups.isEmpty && !_isScanningOrphans) {
+                _scanOrphanLeftovers();
+              }
+            },
+          ),
+          _buildSidebarNavItem(
+            section: NavigationSection.operationLogs,
+            icon: Icons.history_rounded,
+            title: 'Activity History',
+            subtitle:
+                'Freed ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
+          ),
+
+          const Spacer(),
+
+          // Web UI Debug Platform Switcher (when running on Chrome / Web Server)
+          if (kIsWeb)
+            Container(
+              margin: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 8,
+              ),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.tertiaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.web_rounded,
+                        size: 16,
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Web UI Debug Mode',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onTertiaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Preview platform workflows in browser:',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ChoiceChip(
+                        label: const Text(
+                          'All OS',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        selected: _webDebugPlatformFilter == null,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) {
+                          setState(() => _webDebugPlatformFilter = null);
+                          _scanInstalledApps();
+                        },
+                      ),
+                      ...DesktopPlatformType.values.map(
+                        (p) => ChoiceChip(
+                          label: Text(
+                            p.label,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          selected: _webDebugPlatformFilter == p,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) {
+                            setState(() => _webDebugPlatformFilter = p);
+                            _scanInstalledApps();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+          // Total Freed Space Card
+          Container(
+            margin: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Total Space Freed',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  FormatUtils.formatBytes(_totalFreedSessionBytes),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCompactRail(
+    BuildContext context, {
+    required int userAppsCount,
+    required int systemAppsCount,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 68,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        border: Border(
+          right: BorderSide(color: colorScheme.outlineVariant),
+        ),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 16, 0, 14),
+            child: Tooltip(
+              message: 'AppCleaner',
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.asset(
+                  'assets/app_icon.png',
+                  width: 36,
+                  height: 36,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          _buildCompactRailItem(
+            section: NavigationSection.apps,
+            icon: Icons.apps_rounded,
+            tooltip:
+                'Installed Apps (User $userAppsCount · System $systemAppsCount)',
+          ),
+          _buildCompactRailItem(
+            section: NavigationSection.orphanLeftovers,
+            icon: Icons.auto_delete_rounded,
+            tooltip: 'Orphaned Leftovers',
+            onTapExtra: () {
+              if (_orphanGroups.isEmpty && !_isScanningOrphans) {
+                _scanOrphanLeftovers();
+              }
+            },
+          ),
+          _buildCompactRailItem(
+            section: NavigationSection.operationLogs,
+            icon: Icons.history_rounded,
+            tooltip:
+                'Activity History (Freed ${FormatUtils.formatBytes(_totalFreedSessionBytes)})',
+          ),
+          const Spacer(),
+          Tooltip(
+            message:
+                'Total Space Freed: ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(8, 8, 8, 14),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.cleaning_services_rounded,
+                    size: 16,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    FormatUtils.formatBytes(_totalFreedSessionBytes),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactRailItem({
+    required NavigationSection section,
+    required IconData icon,
+    required String tooltip,
+    VoidCallback? onTapExtra,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final selected = _currentSection == section;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            setState(() => _currentSection = section);
+            onTapExtra?.call();
+          },
+          child: Container(
+            width: 48,
+            height: 44,
+            decoration: BoxDecoration(
+              color: selected
+                  ? colorScheme.secondaryContainer
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              size: 22,
+              color: selected
+                  ? colorScheme.onSecondaryContainer
+                  : colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -828,6 +999,39 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     }
   }
 
+  Widget _buildFilterSegmentLabel(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            '$count',
+            maxLines: 1,
+            softWrap: false,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              height: 1.15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAppsSplitView(
     BuildContext context, {
     required int userAppsCount,
@@ -837,127 +1041,151 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     final colorScheme = theme.colorScheme;
     final visibleApps = _filteredAndSortedApps;
 
-    return Row(
-      children: [
-        // Left Master List of Installed Apps
-        Container(
-          width: 400,
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            border: Border(
-              right: BorderSide(color: colorScheme.outlineVariant),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Filter & Search Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Segmented Filter: User Apps vs System Apps vs All
-                    SegmentedButton<AppOriginFilter>(
-                      showSelectedIcon: false,
-                      segments: [
-                        ButtonSegment(
-                          value: AppOriginFilter.userOnly,
-                          label: Text(
-                            'User Apps ($userAppsCount)',
-                            style: const TextStyle(fontSize: 11.5),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: AppOriginFilter.systemOnly,
-                          label: Text(
-                            'System Apps ($systemAppsCount)',
-                            style: const TextStyle(fontSize: 11.5),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: AppOriginFilter.all,
-                          label: Text(
-                            'All (${_apps.length})',
-                            style: const TextStyle(fontSize: 11.5),
-                          ),
-                        ),
-                      ],
-                      selected: {_originFilter},
-                      onSelectionChanged: (set) {
-                        setState(() {
-                          _originFilter = set.first;
-                          final updated = _filteredAndSortedApps;
-                          if (updated.isNotEmpty &&
-                              (_selectedApp == null ||
-                                  !updated
-                                      .any((a) => a.id == _selectedApp!.id))) {
-                            _selectApp(updated.first);
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final listWidth = (constraints.maxWidth * 0.36).clamp(276.0, 380.0);
+        final headerPad = listWidth < 330 ? 12.0 : 16.0;
 
-                    // Search Bar
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'Search by app name, Bundle ID, or package...',
-                        prefixIcon: const Icon(Icons.search, size: 19),
-                        isDense: true,
-                        filled: true,
-                        fillColor: colorScheme.surfaceContainerLow,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Left Master List of Installed Apps
+            Container(
+              width: listWidth,
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  right: BorderSide(color: colorScheme.outlineVariant),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Filter & Search Header
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      headerPad,
+                      14,
+                      headerPad,
+                      10,
                     ),
-                    const SizedBox(height: 8),
-
-                    // Sort Menu + Batch Deep Scan + Refresh
-                    Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        PopupMenuButton<AppSortField>(
-                          initialValue: _sortField,
-                          onSelected: (field) =>
-                              setState(() => _sortField = field),
-                          itemBuilder: (ctx) => AppSortField.values
-                              .map(
-                                (f) => PopupMenuItem(
-                                  value: f,
-                                  child: Text(f.label),
-                                ),
-                              )
-                              .toList(),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
+                        // Segmented Filter: User Apps vs System Apps vs All
+                        // Uniform 2-line layout (title on top, count below)
+                        SegmentedButton<AppOriginFilter>(
+                          showSelectedIcon: false,
+                          style: const ButtonStyle(
+                            padding: WidgetStatePropertyAll(
+                              EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                             ),
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(8),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          segments: [
+                            ButtonSegment(
+                              value: AppOriginFilter.userOnly,
+                              label: _buildFilterSegmentLabel(
+                                'User Apps',
+                                userAppsCount,
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.sort_rounded, size: 15),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _sortField.label,
-                                  style: const TextStyle(fontSize: 11.5),
-                                ),
-                              ],
+                            ButtonSegment(
+                              value: AppOriginFilter.systemOnly,
+                              label: _buildFilterSegmentLabel(
+                                'System Apps',
+                                systemAppsCount,
+                              ),
+                            ),
+                            ButtonSegment(
+                              value: AppOriginFilter.all,
+                              label: _buildFilterSegmentLabel(
+                                'All',
+                                _apps.length,
+                              ),
+                            ),
+                          ],
+                          selected: {_originFilter},
+                          onSelectionChanged: (set) {
+                            setState(() {
+                              _originFilter = set.first;
+                              final updated = _filteredAndSortedApps;
+                              if (updated.isNotEmpty &&
+                                  (_selectedApp == null ||
+                                      !updated.any(
+                                        (a) => a.id == _selectedApp!.id,
+                                      ))) {
+                                _selectApp(updated.first);
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Search Bar
+                        TextField(
+                          decoration: InputDecoration(
+                            hintText:
+                                'Search by app name, Bundle ID, or package...',
+                            prefixIcon: const Icon(Icons.search, size: 19),
+                            isDense: true,
+                            filled: true,
+                            fillColor: colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
                             ),
                           ),
+                          onChanged: (v) => setState(() => _searchQuery = v),
                         ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
+                        const SizedBox(height: 8),
+
+                        // Sort Menu + Batch Deep Scan + Refresh
+                        Row(
+                          children: [
+                            Flexible(
+                              child: PopupMenuButton<AppSortField>(
+                                initialValue: _sortField,
+                                onSelected: (field) =>
+                                    setState(() => _sortField = field),
+                                itemBuilder: (ctx) => AppSortField.values
+                                    .map(
+                                      (f) => PopupMenuItem(
+                                        value: f,
+                                        child: Text(f.label),
+                                      ),
+                                    )
+                                    .toList(),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.sort_rounded, size: 15),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          _sortField.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style:
+                                              const TextStyle(fontSize: 11.5),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            TextButton.icon(
                               style: TextButton.styleFrom(
                                 visualDensity: VisualDensity.compact,
                                 padding:
@@ -984,98 +1212,103 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                                 style: const TextStyle(fontSize: 11.5),
                               ),
                             ),
-                          ),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Refresh Installed Apps',
-                          onPressed:
-                              _isScanningApps ? null : _scanInstalledApps,
-                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              tooltip: 'Refresh Installed Apps',
+                              onPressed:
+                                  _isScanningApps ? null : _scanInstalledApps,
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
+                  ),
+                  const Divider(height: 1),
 
-              // App List
-              Expanded(
-                child: _isScanningApps
-                    ? const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 14),
-                            Text('Scanning installed applications...'),
-                          ],
-                        ),
-                      )
-                    : visibleApps.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No matching applications found',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
+                  // App List
+                  Expanded(
+                    child: _isScanningApps
+                        ? const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 14),
+                                Text('Scanning installed applications...'),
+                              ],
                             ),
                           )
-                        : ListView.separated(
-                            itemCount: visibleApps.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final app = visibleApps[index];
-                              final isSelected = _selectedApp?.id == app.id;
-                              return _buildAppListItem(
-                                context,
-                                app,
-                                isSelected,
-                              );
-                            },
-                          ),
-              ),
-            ],
-          ),
-        ),
-
-        // Right Detail Pane
-        Expanded(
-          child: _selectedApp == null
-              ? Center(
-                  child: Text(
-                    'Select an application on the left to inspect storage, reset data, or uninstall',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                        : visibleApps.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No matching applications found',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: visibleApps.length,
+                                separatorBuilder: (_, _) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final app = visibleApps[index];
+                                  final isSelected = _selectedApp?.id == app.id;
+                                  return _buildAppListItem(
+                                    context,
+                                    app,
+                                    isSelected,
+                                  );
+                                },
+                              ),
                   ),
-                )
-              : AppDetailPanel(
-                  app: _selectedApp!,
-                  isScanningData: _isScanningSelectedAppData,
-                  onRescanAppData: () =>
-                      _selectApp(_selectedApp!, forceRescan: true),
-                  onClearCacheOnly: () => _handleClearCacheOnly(_selectedApp!),
-                  onClearAllData: () => _handleClearAllData(_selectedApp!),
-                  onUninstallApp: () => _handleUninstallApp(_selectedApp!),
-                  onTerminateProcess: () async {
-                    final ok =
-                        await _service.terminateRunningApp(_selectedApp!);
-                    if (ok && mounted) {
-                      setState(() => _selectedApp!.isRunning = false);
-                      _showSnack(
-                        'Terminated running process: ${_selectedApp!.name}',
-                        tone: CapsuleToastTone.success,
-                      );
-                    }
-                  },
-                  onRevealPath: _service.revealInFileManager,
-                  onSelectionChanged: () => setState(() {}),
-                ),
-        ),
-      ],
+                ],
+              ),
+            ),
+
+            // Right Detail Pane (top-aligned via stretch + SizedBox.expand)
+            Expanded(
+              child: _selectedApp == null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'Select an application on the left to inspect storage, reset data, or uninstall',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    )
+                  : AppDetailPanel(
+                      app: _selectedApp!,
+                      isScanningData: _isScanningSelectedAppData,
+                      onRescanAppData: () =>
+                          _selectApp(_selectedApp!, forceRescan: true),
+                      onClearCacheOnly: () =>
+                          _handleClearCacheOnly(_selectedApp!),
+                      onClearAllData: () => _handleClearAllData(_selectedApp!),
+                      onUninstallApp: () => _handleUninstallApp(_selectedApp!),
+                      onTerminateProcess: () async {
+                        final ok =
+                            await _service.terminateRunningApp(_selectedApp!);
+                        if (ok && mounted) {
+                          setState(() => _selectedApp!.isRunning = false);
+                          _showSnack(
+                            'Terminated running process: ${_selectedApp!.name}',
+                            tone: CapsuleToastTone.success,
+                          );
+                        }
+                      },
+                      onRevealPath: _service.revealInFileManager,
+                      onSelectionChanged: () => setState(() {}),
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1147,38 +1380,43 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                   const SizedBox(height: 3),
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: app.isSelfApp
-                              ? Colors.blue
-                                  .withValues(alpha: isDark ? 0.28 : 0.16)
-                              : (isSystem
-                                  ? Colors.amber
-                                      .withValues(alpha: isDark ? 0.24 : 0.2)
-                                  : Colors.indigo
-                                      .withValues(alpha: isDark ? 0.28 : 0.14)),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          app.isSelfApp ? 'Self-Locked' : app.origin.label,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
                             color: app.isSelfApp
-                                ? (isDark
-                                    ? Colors.lightBlue.shade200
-                                    : Colors.blue.shade800)
+                                ? Colors.blue
+                                    .withValues(alpha: isDark ? 0.28 : 0.16)
                                 : (isSystem
-                                    ? (isDark
-                                        ? Colors.amber.shade300
-                                        : Colors.amber.shade900)
-                                    : (isDark
-                                        ? Colors.indigo.shade200
-                                        : Colors.indigo.shade800)),
+                                    ? Colors.amber
+                                        .withValues(alpha: isDark ? 0.24 : 0.2)
+                                    : Colors.indigo.withValues(
+                                        alpha: isDark ? 0.28 : 0.14,
+                                      )),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            app.isSelfApp ? 'Self-Locked' : app.origin.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: app.isSelfApp
+                                  ? (isDark
+                                      ? Colors.lightBlue.shade200
+                                      : Colors.blue.shade800)
+                                  : (isSystem
+                                      ? (isDark
+                                          ? Colors.amber.shade300
+                                          : Colors.amber.shade900)
+                                      : (isDark
+                                          ? Colors.indigo.shade200
+                                          : Colors.indigo.shade800)),
+                            ),
                           ),
                         ),
                       ),
@@ -1267,44 +1505,72 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            border: Border(
-              bottom: BorderSide(color: colorScheme.outlineVariant),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.history_rounded, color: colorScheme.primary, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Activity History (${_operationLogs.length} entries)',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 600;
+            final headerInfo = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.history_rounded, color: colorScheme.primary, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Activity History (${_operationLogs.length} entries)',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Automatically saved to disk · Cumulative space freed: ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                      Text(
+                        'Automatically saved to disk · Cumulative space freed: ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+            final clearBtn = OutlinedButton.icon(
+              onPressed: _handleClearHistory,
+              icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+              label: const Text('Clear History'),
+            );
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(
+                isCompact ? 16 : 24,
+                18,
+                isCompact ? 16 : 24,
+                14,
+              ),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(color: colorScheme.outlineVariant),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: _handleClearHistory,
-                icon: const Icon(Icons.delete_sweep_outlined, size: 18),
-                label: const Text('Clear History'),
-              ),
-            ],
-          ),
+              child: isCompact
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        headerInfo,
+                        const SizedBox(height: 10),
+                        clearBtn,
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(child: headerInfo),
+                        const SizedBox(width: 12),
+                        clearBtn,
+                      ],
+                    ),
+            );
+          },
         ),
         Expanded(
           child: ListView.separated(

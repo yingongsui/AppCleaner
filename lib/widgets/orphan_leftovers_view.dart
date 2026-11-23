@@ -61,158 +61,188 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Top Summary Banner
-        Container(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            border: Border(
-              bottom: BorderSide(color: colorScheme.outlineVariant),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.tertiaryContainer,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      Icons.auto_delete_rounded,
-                      size: 28,
-                      color: colorScheme.onTertiaryContainer,
-                    ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 860;
+            final isNarrow = constraints.maxWidth < 560;
+            final hPad = isNarrow ? 16.0 : 24.0;
+
+            final headerIdentity = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Icon(
+                    Icons.auto_delete_rounded,
+                    size: isNarrow ? 24 : 28,
+                    color: colorScheme.onTertiaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Orphaned Leftovers Scanner',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Cross-references user directories and Windows Registry hives (HKCU/HKLM) against currently installed apps to detect residual configs, caches, containers, and registry keys left by previously uninstalled apps.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+
+            final rescanButton = OutlinedButton.icon(
+              onPressed: widget.isScanning ? null : widget.onRescan,
+              icon: widget.isScanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              label: Text(
+                widget.isScanning ? 'Scanning...' : 'Rescan Leftovers',
+              ),
+            );
+
+            final cleanButton = FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: colorScheme.error,
+                foregroundColor: colorScheme.onError,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+              ),
+              onPressed: widget.isScanning || selectedItemCount == 0
+                  ? null
+                  : widget.onCleanSelected,
+              icon: const Icon(Icons.cleaning_services_rounded),
+              label: Text(
+                'Clean Selected ($selectedItemCount items · ${FormatUtils.formatBytes(selectedOrphanBytes)})',
+              ),
+            );
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(hPad, 18, hPad, 14),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(color: colorScheme.outlineVariant),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isCompact)
+                    Row(
                       children: [
-                        Text(
-                          'Orphaned Leftovers Scanner',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Cross-references user directories and Windows Registry hives (HKCU/HKLM) against currently installed apps to detect residual configs, caches, containers, and registry keys left by previously uninstalled apps.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+                        Expanded(child: headerIdentity),
+                        const SizedBox(width: 16),
+                        rescanButton,
+                        const SizedBox(width: 12),
+                        cleanButton,
                       ],
+                    )
+                  else ...[
+                    headerIdentity,
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [rescanButton, cleanButton],
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  OutlinedButton.icon(
-                    onPressed: widget.isScanning ? null : widget.onRescan,
-                    icon: widget.isScanning
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh_rounded),
-                    label: Text(
-                      widget.isScanning ? 'Scanning...' : 'Rescan Leftovers',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: colorScheme.error,
-                      foregroundColor: colorScheme.onError,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
-                      ),
-                    ),
-                    onPressed: widget.isScanning || selectedItemCount == 0
-                        ? null
-                        : widget.onCleanSelected,
-                    icon: const Icon(Icons.cleaning_services_rounded),
-                    label: Text(
-                      'Clean Selected ($selectedItemCount items · ${FormatUtils.formatBytes(selectedOrphanBytes)})',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 300,
-                    child: TextField(
-                      decoration: InputDecoration(
-                        hintText:
-                            'Filter by app name, Bundle ID, path, or Registry key...',
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        isDense: true,
-                        filled: true,
-                        fillColor: colorScheme.surfaceContainerLow,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
+                  ],
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: isNarrow ? double.infinity : 280,
+                        child: TextField(
+                          decoration: InputDecoration(
+                            hintText:
+                                'Filter by app name, Bundle ID, path, or Registry key...',
+                            prefixIcon: const Icon(Icons.search, size: 20),
+                            isDense: true,
+                            filled: true,
+                            fillColor: colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onChanged: (v) => setState(() => _searchQuery = v),
                         ),
                       ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: widget.orphanGroups.isEmpty
-                        ? null
-                        : () {
-                            for (final g in widget.orphanGroups) {
-                              for (final i in g.items) {
-                                i.selected = true;
-                              }
-                            }
-                            widget.onSelectionChanged();
-                          },
-                    icon: const Icon(Icons.select_all_rounded, size: 18),
-                    label: const Text('Select All'),
-                  ),
-                  TextButton.icon(
-                    onPressed: widget.orphanGroups.isEmpty
-                        ? null
-                        : () {
-                            for (final g in widget.orphanGroups) {
-                              for (final i in g.items) {
-                                i.selected = false;
-                              }
-                            }
-                            widget.onSelectionChanged();
-                          },
-                    icon: const Icon(Icons.deselect_rounded, size: 18),
-                    label: const Text('Deselect All'),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'Found ${widget.orphanGroups.length} groups · Total ${FormatUtils.formatBytes(totalOrphanBytes)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                      TextButton.icon(
+                        onPressed: widget.orphanGroups.isEmpty
+                            ? null
+                            : () {
+                                for (final g in widget.orphanGroups) {
+                                  for (final i in g.items) {
+                                    i.selected = true;
+                                  }
+                                }
+                                widget.onSelectionChanged();
+                              },
+                        icon: const Icon(Icons.select_all_rounded, size: 18),
+                        label: const Text('Select All'),
                       ),
-                    ),
+                      TextButton.icon(
+                        onPressed: widget.orphanGroups.isEmpty
+                            ? null
+                            : () {
+                                for (final g in widget.orphanGroups) {
+                                  for (final i in g.items) {
+                                    i.selected = false;
+                                  }
+                                }
+                                widget.onSelectionChanged();
+                              },
+                        icon: const Icon(Icons.deselect_rounded, size: 18),
+                        label: const Text('Deselect All'),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Found ${widget.orphanGroups.length} groups · Total ${FormatUtils.formatBytes(totalOrphanBytes)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         ),
 
         // Main List Content
