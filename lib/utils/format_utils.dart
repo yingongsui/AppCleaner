@@ -57,6 +57,23 @@ class FormatUtils {
     return cleaned.join(sep);
   }
 
+  /// Parses human-readable size strings (e.g. "123.4 MB", "45.2 MiB", "812 kB") into bytes.
+  static int parseHumanSize(String raw) {
+    final cleaned = raw.replaceAll('\u00A0', ' ').trim();
+    final match = RegExp(
+      r'([\d.,]+)\s*([KMGTP]?i?B)',
+      caseSensitive: false,
+    ).firstMatch(cleaned);
+    if (match == null) return 0;
+    final val = double.tryParse(match.group(1)!.replaceAll(',', '.')) ?? 0;
+    final unit = match.group(2)!.toUpperCase();
+    if (unit.startsWith('K')) return (val * 1024).round();
+    if (unit.startsWith('M')) return (val * 1024 * 1024).round();
+    if (unit.startsWith('G')) return (val * 1024 * 1024 * 1024).round();
+    if (unit.startsWith('T')) return (val * 1024 * 1024 * 1024 * 1024).round();
+    return val.round();
+  }
+
   /// Gets the base name of a file or directory path.
   static String basename(String path) {
     var normalized = path.replaceAll(r'\', '/');

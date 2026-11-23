@@ -1,6 +1,7 @@
 import 'package:app_cleaner/main.dart';
 import 'package:app_cleaner/models/app_models.dart';
 import 'package:app_cleaner/services/app_cleaner_service.dart';
+import 'package:app_cleaner/utils/format_utils.dart';
 import 'package:app_cleaner/utils/platform_parsers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -218,6 +219,12 @@ End-Date: 2026-11-20  10:15:22
       expect(restored.title, entry.title);
       expect(restored.result.freedBytes, 56 * 1024 * 1024);
       expect(restored.result.deletedPaths, ['/Applications/BetterDisplay.app']);
+    });
+
+    test('Parses human-readable package sizes across KB/MB/GB/MiB', () {
+      expect(FormatUtils.parseHumanSize('12.5 MiB'), (12.5 * 1024 * 1024).round());
+      expect(FormatUtils.parseHumanSize('480 kB'), 480 * 1024);
+      expect(FormatUtils.parseHumanSize('1.5 GB'), (1.5 * 1024 * 1024 * 1024).round());
     });
   });
 

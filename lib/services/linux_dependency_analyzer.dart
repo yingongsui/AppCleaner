@@ -1,78 +1,13 @@
 import 'dart:io';
 
 import '../models/app_models.dart';
+import '../utils/format_utils.dart';
 import '../utils/platform_parsers.dart';
 
-/// Analyzes and resolves additional libraries/dependencies installed alongside
-/// a Linux package (APT/dpkg, Pacman, DNF/rpm, Flatpak) so they can be
-/// displayed and selectively uninstalled together with the main application.
+/// Analyzes additional libraries/dependencies installed alongside a Linux
+/// package (APT/dpkg, Pacman, DNF/rpm, Flatpak) so they can be displayed and
+/// selectively uninstalled together with the main application.
 class LinuxDependencyAnalyzer {
-  /// Resolves the package name that owns a given file or executable on Linux.
-  Future<({String? packageName, InstallSource? source})> resolveOwningPackage({
-    required String executablePath,
-    required String installPath,
-    InstallSource? currentSource,
-  }) async {
-    if (currentSource == InstallSource.flatpak ||
-        currentSource == InstallSource.snap) {
-      return (packageName: null, source: currentSource);
-    }
-
-    final candidatePaths = <String>[
-      if (installPath.isNotEmpty) installPath,
-      if (executablePath.isNotEmpty) executablePath.split(' ').first,
-    ];
-
-    for (final path in candidatePaths) {
-      if (path.isEmpty) continue;
-
-      if (await _hasCommand('dpkg')) {
-        try {
-          final res = await Process.run('dpkg', ['-S', path]);
-          if (res.exitCode == 0) {
-            final line = (res.stdout as String).trim().split('\n').first;
-            final colonIdx = line.indexOf(':');
-            if (colonIdx > 0) {
-              final pkg = line.substring(0, colonIdx).split(',').first.trim();
-              if (pkg.isNotEmpty) {
-                return (packageName: pkg, source: InstallSource.aptDpkg);
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (await _hasCommand('pacman')) {
-        try {
-          final res = await Process.run('pacman', ['-Qo', '-q', path]);
-          if (res.exitCode == 0) {
-            final pkg = (res.stdout as String).trim().split('\n').first.trim();
-            if (pkg.isNotEmpty) {
-              return (packageName: pkg, source: InstallSource.pacman);
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (await _hasCommand('rpm')) {
-        try {
-          final res = await Process.run(
-            'rpm',
-            ['-qf', '--queryformat', '%{NAME}', path],
-          );
-          if (res.exitCode == 0) {
-            final pkg = (res.stdout as String).trim();
-            if (pkg.isNotEmpty && !pkg.contains('not owned')) {
-              return (packageName: pkg, source: InstallSource.dnfRpm);
-            }
-          }
-        } catch (_) {}
-      }
-    }
-
-    return (packageName: null, source: currentSource);
-  }
-
   /// Finds all additional libraries/dependencies installed with [app] on Linux.
   Future<List<LinuxDependencyPackage>> analyzeDependencies(
     InstalledApp app,
@@ -352,7 +287,7 @@ class LinuxDependencyAnalyzer {
           } else if (line.startsWith('Description')) {
             description = line.split(':').skip(1).join(':').trim();
           } else if (line.startsWith('Installed Size')) {
-            sizeBytes = _parseHumanSize(
+            sizeBytes = FormatUtils.parseHumanSize(
               line.split(':').skip(1).join(':').trim(),
             );
           } else if (line.startsWith('Install Reason')) {
@@ -456,18 +391,6 @@ class LinuxDependencyAnalyzer {
       }
     } catch (_) {}
     return results;
-  }
-
-  int _parseHumanSize(String text) {
-    final match = RegExp(r'([\d.]+)\s*([KMGTP]?i?B)', caseSensitive: false)
-        .firstMatch(text);
-    if (match == null) return 0;
-    final val = double.tryParse(match.group(1)!) ?? 0;
-    final unit = match.group(2)!.toUpperCase();
-    if (unit.startsWith('K')) return (val * 1024).round();
-    if (unit.startsWith('M')) return (val * 1024 * 1024).round();
-    if (unit.startsWith('G')) return (val * 1024 * 1024 * 1024).round();
-    return val.round();
   }
 
   Future<bool> _hasCommand(String cmd) async {

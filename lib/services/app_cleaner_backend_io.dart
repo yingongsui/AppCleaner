@@ -26,11 +26,7 @@ class AppCleanerPlatformBackend {
   })  : linuxDependencyAnalyzer =
             linuxDependencyAnalyzer ?? LinuxDependencyAnalyzer(),
         macScanner = macScanner ?? MacOsAppScanner(),
-        linuxScanner = linuxScanner ??
-            LinuxAppScanner(
-              dependencyAnalyzer:
-                  linuxDependencyAnalyzer ?? LinuxDependencyAnalyzer(),
-            ),
+        linuxScanner = linuxScanner ?? LinuxAppScanner(),
         windowsScanner = windowsScanner ?? WindowsAppScanner();
 
   Future<List<InstalledApp>> scanInstalledApps({

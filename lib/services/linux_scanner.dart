@@ -5,17 +5,11 @@ import '../models/app_models.dart';
 import '../utils/format_utils.dart';
 import '../utils/io_file_utils.dart';
 import '../utils/platform_parsers.dart';
-import 'linux_dependency_analyzer.dart';
 
 /// Scans Linux installed applications (.desktop entries, dpkg/apt, pacman, dnf, flatpak, snap),
 /// distinguishes User Installed Apps vs System Apps, locates XDG/Flatpak/Snap app data & cache,
 /// and discovers orphaned leftovers.
 class LinuxAppScanner {
-  final LinuxDependencyAnalyzer dependencyAnalyzer;
-
-  LinuxAppScanner({LinuxDependencyAnalyzer? dependencyAnalyzer})
-      : dependencyAnalyzer = dependencyAnalyzer ?? LinuxDependencyAnalyzer();
-
   String get _homeDir => Platform.environment['HOME'] ?? '/home';
   String get _xdgConfigHome =>
       Platform.environment['XDG_CONFIG_HOME'] ?? '$_homeDir/.config';
@@ -99,7 +93,9 @@ class LinuxAppScanner {
     'com.yin.appcleaner',
   };
 
-  /// Scans all installed applications on Linux.
+  /// Scans all installed applications on Linux using bulk package-manager
+  /// queries (1x `dpkg -S` + 1x `dpkg-query`) and concurrent icon/size loading
+  /// so Ubuntu/Debian/Arch/Fedora app lists load in under a second.
   Future<List<InstalledApp>> scanInstalledApps() async {
     final desktopDirs = <({
       String path,
@@ -138,12 +134,18 @@ class LinuxAppScanner {
       ),
     ];
 
-    final manualPackages = await _fetchExplicitlyInstalledPackages();
-    final runningProcesses = await _fetchRunningProcesses();
     final defaultPkgSource = await _detectPrimaryDistroSource();
 
+    // Phase 1: Collect and parse all visible .desktop entries in memory (no subprocesses)
     final seenDesktopIds = <String>{};
-    final apps = <InstalledApp>[];
+    final parsedEntries = <({
+      File file,
+      String desktopId,
+      bool isUserDir,
+      InstallSource defaultSource,
+      Map<String, String> fields,
+      String execBinary,
+    })>[];
 
     for (final dirEntry in desktopDirs) {
       final dir = Directory(dirEntry.path);
@@ -163,55 +165,108 @@ class LinuxAppScanner {
           0,
           desktopFileName.length - '.desktop'.length,
         );
-
         if (!seenDesktopIds.add(desktopId)) continue;
 
-        final app = await _parseDesktopEntry(
+        String content;
+        try {
+          content = await entity.readAsString();
+        } catch (_) {
+          continue;
+        }
+
+        final fields = PlatformParsers.parseDesktopEntry(content);
+        if (fields['NoDisplay']?.toLowerCase() == 'true' ||
+            fields['Hidden']?.toLowerCase() == 'true') {
+          continue;
+        }
+        final rawExec = fields['Exec'] ?? '';
+        if (rawExec.isEmpty) continue;
+
+        parsedEntries.add((
           file: entity,
           desktopId: desktopId,
           isUserDir: dirEntry.isUserDir,
           defaultSource: dirEntry.defaultSource == InstallSource.aptDpkg
               ? defaultPkgSource
               : dirEntry.defaultSource,
-          manualPackages: manualPackages,
-          runningProcesses: runningProcesses,
-        );
-        if (app != null) {
-          apps.add(app);
-        }
+          fields: fields,
+          execBinary: _extractBinaryFromExec(rawExec),
+        ));
       }
+    }
+
+    // Paths that need distro package ownership resolution (exclude Flatpak & Snap)
+    final pathsToResolve = parsedEntries
+        .where((e) =>
+            e.defaultSource != InstallSource.flatpak &&
+            e.defaultSource != InstallSource.snap &&
+            (e.fields['X-Flatpak']?.isEmpty ?? true) &&
+            (e.fields['X-SnapInstanceName']?.isEmpty ?? true))
+        .map((e) => e.file.path)
+        .toList();
+
+    // Phase 2: Execute all system-level metadata queries ONCE in parallel
+    final manualFuture = _fetchExplicitlyInstalledPackages();
+    final runningFuture = _fetchRunningProcesses();
+    final flatpakFuture = _fetchFlatpakAppMetadata();
+    final ownersFuture = _batchResolvePackageOwners(
+      pathsToResolve,
+      defaultPkgSource,
+    );
+    final bulkPkgMetaFuture = _fetchBulkPackageMetadata(defaultPkgSource);
+
+    final manualPackages = await manualFuture;
+    final runningProcesses = await runningFuture;
+    final flatpakMeta = await flatpakFuture;
+    final ownerMap = await ownersFuture;
+    final bulkPkgMeta = await bulkPkgMetaFuture;
+
+    // Phase 3: Build InstalledApp objects concurrently in bounded batches
+    final apps = <InstalledApp>[];
+    const batchSize = 12;
+    for (var i = 0; i < parsedEntries.length; i += batchSize) {
+      final chunk = parsedEntries.sublist(
+        i,
+        (i + batchSize).clamp(0, parsedEntries.length),
+      );
+      final built = await Future.wait(
+        chunk.map(
+          (entry) => _buildAppFromParsedEntry(
+            file: entry.file,
+            desktopId: entry.desktopId,
+            isUserDir: entry.isUserDir,
+            defaultSource: entry.defaultSource,
+            fields: entry.fields,
+            execBinary: entry.execBinary,
+            manualPackages: manualPackages,
+            runningProcesses: runningProcesses,
+            flatpakMeta: flatpakMeta,
+            ownerMap: ownerMap,
+            bulkPkgMeta: bulkPkgMeta,
+          ),
+        ),
+      );
+      apps.addAll(built);
     }
 
     apps.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return apps;
   }
 
-  Future<InstalledApp?> _parseDesktopEntry({
+  Future<InstalledApp> _buildAppFromParsedEntry({
     required File file,
     required String desktopId,
     required bool isUserDir,
     required InstallSource defaultSource,
+    required Map<String, String> fields,
+    required String execBinary,
     required Set<String> manualPackages,
     required String runningProcesses,
+    required Map<String, ({String version, int sizeBytes})> flatpakMeta,
+    required Map<String, ({String packageName, InstallSource source})> ownerMap,
+    required Map<String, ({String version, int sizeBytes})> bulkPkgMeta,
   }) async {
-    String content;
-    try {
-      content = await file.readAsString();
-    } catch (_) {
-      return null;
-    }
-
-    final fields = PlatformParsers.parseDesktopEntry(content);
-    if (fields['NoDisplay']?.toLowerCase() == 'true' ||
-        fields['Hidden']?.toLowerCase() == 'true') {
-      return null;
-    }
-
     final name = fields['Name'] ?? desktopId;
-    final rawExec = fields['Exec'] ?? '';
-    if (rawExec.isEmpty) return null;
-
-    final execBinary = _extractBinaryFromExec(rawExec);
     final categories = fields['Categories'] ?? '';
     final flatpakId = fields['X-Flatpak'] ?? '';
     final snapName = fields['X-SnapInstanceName'] ?? '';
@@ -229,17 +284,11 @@ class LinuxAppScanner {
       packageName = snapName.isNotEmpty ? snapName : desktopId.split('_').first;
       identifier = packageName;
     } else {
-      final resolved = await dependencyAnalyzer.resolveOwningPackage(
-        executablePath: execBinary,
-        installPath: file.path,
-        currentSource: source,
-      );
-      if (resolved.packageName != null) {
-        packageName = resolved.packageName;
-        identifier = packageName!;
-      }
-      if (resolved.source != null) {
-        source = resolved.source!;
+      final owner = ownerMap[file.path];
+      if (owner != null) {
+        packageName = owner.packageName;
+        identifier = packageName;
+        source = owner.source;
       }
     }
 
@@ -269,13 +318,40 @@ class LinuxAppScanner {
 
     int appSize = 0;
     String version = fields['X-AppImage-Version'] ?? '';
-    if (packageName != null &&
+    if (source == InstallSource.flatpak) {
+      final fp = flatpakMeta[identifier];
+      if (fp != null) {
+        if (fp.version.isNotEmpty) version = fp.version;
+        appSize = fp.sizeBytes;
+      }
+      if (appSize == 0) {
+        appSize = await _measureFlatpakFallbackSize(identifier);
+      }
+    } else if (source == InstallSource.snap) {
+      final resolvedSnap = packageName ?? identifier;
+      appSize = await _measureSnapSize(resolvedSnap);
+    } else if (packageName != null &&
         (source == InstallSource.aptDpkg ||
             source == InstallSource.pacman ||
             source == InstallSource.dnfRpm)) {
-      final meta = await _queryPackageVersionAndSize(packageName, source);
-      if (meta.version.isNotEmpty) version = meta.version;
-      if (meta.sizeBytes > 0) appSize = meta.sizeBytes;
+      final cached = bulkPkgMeta[packageName];
+      if (cached != null) {
+        if (cached.version.isNotEmpty) version = cached.version;
+        appSize = cached.sizeBytes;
+      } else {
+        final meta = await _queryPackageVersionAndSize(packageName, source);
+        if (meta.version.isNotEmpty) version = meta.version;
+        appSize = meta.sizeBytes;
+      }
+      // If DEB package omitted Installed-Size in DEBIAN/control, sum via dpkg -L
+      if (appSize == 0 && source == InstallSource.aptDpkg) {
+        appSize = await _sumDpkgOwnedFiles(packageName);
+      }
+    }
+
+    // Fallback for AppImage, /opt/* bundles, or standalone local binaries
+    if (appSize == 0) {
+      appSize = await _measureBinaryOrBundleSize(execBinary);
     }
 
     final isSelf = IoFileUtils.isSelfApplication(
@@ -309,6 +385,113 @@ class LinuxAppScanner {
       iconBytes: iconBytes,
       isRunning: isRunning,
     );
+  }
+
+  /// Resolves owning packages for all [paths] in ONE single `dpkg -S` / `pacman -Qo` / `rpm -qf` invocation.
+  Future<Map<String, ({String packageName, InstallSource source})>>
+      _batchResolvePackageOwners(
+    List<String> paths,
+    InstallSource distroSource,
+  ) async {
+    final result = <String, ({String packageName, InstallSource source})>{};
+    if (paths.isEmpty) return result;
+
+    try {
+      if (distroSource == InstallSource.aptDpkg) {
+        // Single dpkg -S call reads /var/lib/dpkg/info/*.list ONCE instead of N times
+        final res = await Process.run('dpkg', ['-S', ...paths]);
+        final stdoutStr = res.stdout as String;
+        for (final line in stdoutStr.split('\n')) {
+          final sep = line.indexOf(': ');
+          if (sep <= 0) continue;
+          final rawPkg = line.substring(0, sep).split(',').first.trim();
+          final pkg = rawPkg.split(':').first.trim();
+          final filePath = line.substring(sep + 2).trim();
+          if (pkg.isNotEmpty && filePath.isNotEmpty) {
+            result[filePath] = (
+              packageName: pkg,
+              source: InstallSource.aptDpkg,
+            );
+          }
+        }
+      } else if (distroSource == InstallSource.pacman) {
+        final res = await Process.run(
+          'pacman',
+          ['-Qo', ...paths],
+          environment: {'LC_ALL': 'C'},
+        );
+        final reg = RegExp(r'^(.+?)\s+is owned by\s+(\S+)');
+        for (final line in (res.stdout as String).split('\n')) {
+          final m = reg.firstMatch(line.trim());
+          if (m != null) {
+            result[m.group(1)!.trim()] = (
+              packageName: m.group(2)!.trim(),
+              source: InstallSource.pacman,
+            );
+          }
+        }
+      } else if (distroSource == InstallSource.dnfRpm) {
+        for (final p in paths) {
+          final res = await Process.run(
+            'rpm',
+            ['-qf', '--queryformat', '%{NAME}', p],
+          );
+          if (res.exitCode == 0) {
+            final pkg = (res.stdout as String).trim();
+            if (pkg.isNotEmpty && !pkg.contains('not owned')) {
+              result[p] = (packageName: pkg, source: InstallSource.dnfRpm);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return result;
+  }
+
+  /// Fetches version & installed size for ALL installed distro packages in ONE single call.
+  Future<Map<String, ({String version, int sizeBytes})>>
+      _fetchBulkPackageMetadata(InstallSource distroSource) async {
+    final map = <String, ({String version, int sizeBytes})>{};
+    try {
+      if (distroSource == InstallSource.aptDpkg) {
+        final res = await Process.run('dpkg-query', [
+          '-W',
+          r'-f=${Package}\t${Version}\t${Installed-Size}\n',
+        ]);
+        if (res.exitCode == 0) {
+          for (final line in (res.stdout as String).split('\n')) {
+            final parts = line.trim().split('\t');
+            if (parts.length < 2) continue;
+            final pkg = parts[0].split(':').first.trim();
+            final ver = parts[1].trim();
+            final kb = parts.length >= 3 ? (int.tryParse(parts[2]) ?? 0) : 0;
+            if (pkg.isNotEmpty) {
+              map[pkg] = (version: ver, sizeBytes: kb * 1024);
+            }
+          }
+        }
+      } else if (distroSource == InstallSource.dnfRpm) {
+        final res = await Process.run('rpm', [
+          '-qa',
+          '--queryformat',
+          r'%{NAME}\t%{VERSION}\t%{SIZE}\n',
+        ]);
+        if (res.exitCode == 0) {
+          for (final line in (res.stdout as String).split('\n')) {
+            final parts = line.trim().split('\t');
+            if (parts.length < 2) continue;
+            final pkg = parts[0].trim();
+            final ver = parts[1].trim();
+            final bytes = parts.length >= 3 ? (int.tryParse(parts[2]) ?? 0) : 0;
+            if (pkg.isNotEmpty) {
+              map[pkg] = (version: ver, sizeBytes: bytes);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return map;
   }
 
   /// Resolves raster icon bytes (.png/.jpg/.webp) from a `.desktop` `Icon=` entry.
@@ -666,11 +849,147 @@ class LinuxAppScanner {
           final parts = (res.stdout as String).trim().split('\t');
           final ver = parts.isNotEmpty ? parts[0] : '';
           final kb = parts.length >= 2 ? (int.tryParse(parts[1]) ?? 0) : 0;
-          return (version: ver, sizeBytes: kb * 1024);
+          int sizeBytes = kb * 1024;
+          // Some DEB packages omit Installed-Size in DEBIAN/control; sum owned files via dpkg -L
+          if (sizeBytes == 0) {
+            sizeBytes = await _sumDpkgOwnedFiles(packageName);
+          }
+          return (version: ver, sizeBytes: sizeBytes);
+        }
+      } else if (source == InstallSource.pacman) {
+        final res = await Process.run(
+          'pacman',
+          ['-Qi', packageName],
+          environment: {'LC_ALL': 'C'},
+        );
+        if (res.exitCode == 0) {
+          String ver = '';
+          int sizeBytes = 0;
+          for (final line in (res.stdout as String).split('\n')) {
+            if (line.startsWith('Version')) {
+              ver = line.split(':').skip(1).join(':').trim();
+            } else if (line.startsWith('Installed Size')) {
+              sizeBytes = FormatUtils.parseHumanSize(
+                line.split(':').skip(1).join(':').trim(),
+              );
+            }
+          }
+          return (version: ver, sizeBytes: sizeBytes);
+        }
+      } else if (source == InstallSource.dnfRpm) {
+        final res = await Process.run(
+          'rpm',
+          ['-q', '--queryformat', r'%{VERSION}\t%{SIZE}', packageName],
+        );
+        if (res.exitCode == 0) {
+          final parts = (res.stdout as String).trim().split('\t');
+          final ver = parts.isNotEmpty ? parts[0] : '';
+          final bytes = parts.length >= 2 ? (int.tryParse(parts[1]) ?? 0) : 0;
+          return (version: ver, sizeBytes: bytes);
         }
       }
     } catch (_) {}
     return (version: '', sizeBytes: 0);
+  }
+
+  Future<int> _sumDpkgOwnedFiles(String packageName) async {
+    try {
+      final res = await Process.run('dpkg', ['-L', packageName]);
+      if (res.exitCode != 0) return 0;
+      int total = 0;
+      for (final line in (res.stdout as String).split('\n')) {
+        final p = line.trim();
+        if (p.isEmpty) continue;
+        final stat = await FileStat.stat(p);
+        if (stat.type == FileSystemEntityType.file) {
+          total += stat.size;
+        }
+      }
+      return total;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<Map<String, ({String version, int sizeBytes})>>
+      _fetchFlatpakAppMetadata() async {
+    final map = <String, ({String version, int sizeBytes})>{};
+    try {
+      final res = await Process.run(
+        'flatpak',
+        ['list', '--app', '--columns=application,version,size'],
+        environment: {'LC_ALL': 'C'},
+      );
+      if (res.exitCode == 0) {
+        for (final line in (res.stdout as String).split('\n')) {
+          final parts = line.trim().split('\t');
+          if (parts.isEmpty || parts[0].trim().isEmpty) continue;
+          final appId = parts[0].trim();
+          final ver = parts.length >= 2 ? parts[1].trim() : '';
+          final sz = parts.length >= 3
+              ? FormatUtils.parseHumanSize(parts[2].trim())
+              : 0;
+          map[appId] = (version: ver, sizeBytes: sz);
+        }
+      }
+    } catch (_) {}
+    return map;
+  }
+
+  Future<int> _measureFlatpakFallbackSize(String appId) async {
+    for (final path in [
+      '/var/lib/flatpak/app/$appId',
+      '$_xdgDataHome/flatpak/app/$appId',
+    ]) {
+      if (await Directory(path).exists()) {
+        final size = await IoFileUtils.calculateEntitySize(path);
+        if (size > 0) return size;
+      }
+    }
+    return 0;
+  }
+
+  Future<int> _measureSnapSize(String snapName) async {
+    final currentDir = '/snap/$snapName/current';
+    if (await Directory(currentDir).exists()) {
+      final size = await IoFileUtils.calculateEntitySize(currentDir);
+      if (size > 0) return size;
+    }
+    return 0;
+  }
+
+  Future<int> _measureBinaryOrBundleSize(String execBinary) async {
+    if (execBinary.isEmpty) return 0;
+    String resolvedPath = execBinary;
+    if (!resolvedPath.startsWith('/')) {
+      try {
+        final whichRes = await Process.run('which', [resolvedPath]);
+        if (whichRes.exitCode == 0) {
+          resolvedPath = (whichRes.stdout as String).trim().split('\n').first;
+        }
+      } catch (_) {}
+    }
+    if (!resolvedPath.startsWith('/')) return 0;
+
+    try {
+      final file = File(resolvedPath);
+      if (await file.exists()) {
+        final realPath = await file.resolveSymbolicLinks();
+        // If installed under /opt/<AppDir>/..., measure the entire /opt/<AppDir> bundle
+        if (realPath.startsWith('/opt/')) {
+          final segments = realPath.split('/');
+          if (segments.length >= 3) {
+            final optRoot = '/opt/${segments[2]}';
+            if (await Directory(optRoot).exists()) {
+              return await IoFileUtils.calculateEntitySize(optRoot);
+            }
+          }
+        }
+        // AppImage or standalone binary
+        return await File(realPath).length();
+      }
+    } catch (_) {}
+    return 0;
   }
 
   Future<String> _fetchRunningProcesses() async {

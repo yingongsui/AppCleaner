@@ -161,12 +161,15 @@ jobs:
 
           ln -s /opt/AppCleaner/AppCleaner "${PKG_ROOT}/usr/bin/AppCleaner"
 
+          INSTALLED_KB=$(du -sk "${PKG_ROOT}/opt/AppCleaner" | cut -f1)
+
           cat <<EOF > "${PKG_ROOT}/DEBIAN/control"
           Package: appcleaner
           Version: ${VERSION_CLEAN}
           Section: utils
           Priority: optional
           Architecture: amd64
+          Installed-Size: ${INSTALLED_KB}
           Depends: libgtk-3-0t64 | libgtk-3-0, pkexec | policykit-1
           Maintainer: Yin
           Description: Cross-platform application uninstaller, Android-style data resetter, and leftover cleaner.

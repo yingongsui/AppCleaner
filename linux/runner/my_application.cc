@@ -19,11 +19,92 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Resolves bundled AppCleaner PNG icon if present; caller owns returned string.
+static gchar* get_bundled_icon_path() {
+  g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
+  if (exe_path == nullptr) {
+    return nullptr;
+  }
+  g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+
+  gchar* asset_icon_path = g_build_filename(
+      exe_dir, "data", "flutter_assets", "assets", "app_icon.png", nullptr);
+  if (g_file_test(asset_icon_path, G_FILE_TEST_EXISTS)) {
+    return asset_icon_path;
+  }
+  g_free(asset_icon_path);
+
+  gchar* fallback_icon_path =
+      g_build_filename(exe_dir, "data", "icon.png", nullptr);
+  if (g_file_test(fallback_icon_path, G_FILE_TEST_EXISTS)) {
+    return fallback_icon_path;
+  }
+  g_free(fallback_icon_path);
+  return nullptr;
+}
+
+// Reduce Ubuntu/GNOME GtkHeaderBar padding and height so the window title bar
+// stays compact while preserving native Wayland/X11 window controls and theme.
+static void apply_compact_header_bar_style(GtkWindow* window,
+                                           GtkHeaderBar* header_bar) {
+  gtk_style_context_add_class(
+      gtk_widget_get_style_context(GTK_WIDGET(header_bar)),
+      "compact-headerbar");
+
+  static gboolean css_registered = FALSE;
+  if (css_registered) {
+    return;
+  }
+
+  static const gchar* kCompactHeaderBarCss =
+      "headerbar.compact-headerbar,"
+      "headerbar.compact-headerbar.titlebar {"
+      "  min-height: 28px;"
+      "  padding-top: 2px;"
+      "  padding-bottom: 2px;"
+      "  padding-left: 8px;"
+      "  padding-right: 8px;"
+      "}"
+      "headerbar.compact-headerbar .title {"
+      "  padding-top: 0;"
+      "  padding-bottom: 0;"
+      "}"
+      "headerbar.compact-headerbar button,"
+      "headerbar.compact-headerbar button.titlebutton {"
+      "  min-height: 22px;"
+      "  min-width: 22px;"
+      "  margin-top: 0;"
+      "  margin-bottom: 0;"
+      "  padding: 2px;"
+      "}";
+
+  GtkCssProvider* css_provider = gtk_css_provider_new();
+  g_autoptr(GError) error = nullptr;
+  if (gtk_css_provider_load_from_data(css_provider, kCompactHeaderBarCss, -1,
+                                      &error)) {
+    GdkScreen* screen = gtk_window_get_screen(window);
+    if (screen != nullptr) {
+      gtk_style_context_add_provider_for_screen(
+          screen, GTK_STYLE_PROVIDER(css_provider),
+          GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+      css_registered = TRUE;
+    }
+  } else if (error != nullptr) {
+    g_warning("Failed to load compact header bar CSS: %s", error->message);
+  }
+  g_object_unref(css_provider);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+
+  g_autofree gchar* icon_path = get_bundled_icon_path();
+  if (icon_path != nullptr) {
+    gtk_window_set_icon_from_file(window, icon_path, nullptr);
+  }
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -46,7 +127,9 @@ static void my_application_activate(GApplication* application) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
     gtk_header_bar_set_title(header_bar, "AppCleaner");
+    gtk_header_bar_set_has_subtitle(header_bar, FALSE);
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
+    apply_compact_header_bar_style(window, header_bar);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
     gtk_window_set_title(window, "AppCleaner");
