@@ -425,6 +425,16 @@ End-Date: 2026-11-20  10:15:22
           isSelfApp: true,
           isRunning: true,
           dataScanned: true,
+          dataItems: [
+            AppDataItem(
+              id: '/home/user/snap/firefox',
+              name: 'snap/firefox',
+              path: '/home/user/snap/firefox',
+              category: DataCategory.container,
+              sizeBytes: 606 * 1024 * 1024,
+              description: 'Snap container user data & revisions (~/snap/firefox)',
+            ),
+          ],
         ),
       ],
       mockOrphans: [
@@ -454,6 +464,10 @@ End-Date: 2026-11-20  10:15:22
     // Compact rail is active, detail header sits near the top (top-aligned, not centered)
     final versionTop = tester.getTopLeft(find.text('v1.0.0')).dy;
     expect(versionTop, lessThan(120));
+
+    // Data item name ('snap/firefox') gets full width instead of wrapping 1 char per line
+    final snapItemSize = tester.getSize(find.text('snap/firefox'));
+    expect(snapItemSize.height, lessThan(36));
 
     // Switch to Orphaned Leftovers via compact rail icon and confirm clean half-screen layout + default deselected
     await tester.tap(find.byIcon(Icons.auto_delete_rounded));

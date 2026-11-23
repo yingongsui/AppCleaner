@@ -385,56 +385,117 @@ class _OrphanLeftoversViewState extends State<OrphanLeftoversView> {
         ),
         children: [
           const Divider(height: 1),
-          ...group.items.map((item) {
-            return ListTile(
-              dense: true,
-              leading: Checkbox(
-                value: item.selected,
-                onChanged: (val) {
-                  item.selected = val ?? false;
-                  widget.onSelectionChanged();
-                },
-              ),
-              title: Row(
-                children: [
-                  DataCategoryBadge(item: item),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      item.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompactItem = constraints.maxWidth < 540;
+              return Column(
+                children: group.items.map((item) {
+                  final revealBtn = IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
                     ),
-                  ),
-                  Text(
-                    FormatUtils.formatBytes(item.sizeBytes),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12.5,
+                    icon: Icon(
+                      item.isRegistryKey
+                          ? Icons.account_tree_outlined
+                          : Icons.folder_open_rounded,
+                      size: 18,
                     ),
-                  ),
-                ],
-              ),
-              subtitle: Text(
-                '${item.path}  ·  Modified: ${FormatUtils.formatDate(item.lastModified)}',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11.5,
-                ),
-              ),
-              trailing: IconButton(
-                icon: Icon(
-                  item.isRegistryKey
-                      ? Icons.account_tree_outlined
-                      : Icons.folder_open_rounded,
-                  size: 18,
-                ),
-                tooltip: item.isRegistryKey
-                    ? 'Open in Registry Editor (regedit)'
-                    : 'Reveal in File Manager',
-                onPressed: () => widget.onRevealPath(item.path),
-              ),
-            );
-          }),
+                    tooltip: item.isRegistryKey
+                        ? 'Open in Registry Editor (regedit)'
+                        : 'Reveal in File Manager',
+                    onPressed: () => widget.onRevealPath(item.path),
+                  );
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Checkbox(
+                          visualDensity: VisualDensity.compact,
+                          value: item.selected,
+                          onChanged: (val) {
+                            item.selected = val ?? false;
+                            widget.onSelectionChanged();
+                          },
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isCompactItem) ...[
+                                Row(
+                                  children: [
+                                    DataCategoryBadge(item: item),
+                                    const Spacer(),
+                                    Text(
+                                      FormatUtils.formatBytes(item.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    revealBtn,
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                              ] else
+                                Row(
+                                  children: [
+                                    DataCategoryBadge(item: item),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      FormatUtils.formatBytes(item.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    revealBtn,
+                                  ],
+                                ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${item.path}  ·  Modified: ${FormatUtils.formatDate(item.lastModified)}',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );

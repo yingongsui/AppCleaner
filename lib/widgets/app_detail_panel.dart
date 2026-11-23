@@ -921,71 +921,118 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final item = filteredItems[index];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
+                  final revealBtn = IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
                     ),
-                    leading: Checkbox(
-                      value: item.selected,
-                      onChanged: (val) {
-                        item.selected = val ?? false;
-                        widget.onSelectionChanged();
-                      },
+                    icon: Icon(
+                      item.isRegistryKey
+                          ? Icons.account_tree_outlined
+                          : Icons.folder_open_rounded,
+                      size: 18,
                     ),
-                    title: Row(
-                      children: [
-                        DataCategoryBadge(item: item),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            item.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13.5,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          FormatUtils.formatBytes(item.sizeBytes),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
+                    tooltip: item.isRegistryKey
+                        ? 'Open in Registry Editor (regedit)'
+                        : 'Reveal in File Manager',
+                    onPressed: () => widget.onRevealPath(item.path),
+                  );
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 8,
                     ),
-                    subtitle: Column(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 2),
-                        Text(
-                          item.path,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11.5,
-                          ),
+                        Checkbox(
+                          visualDensity: VisualDensity.compact,
+                          value: item.selected,
+                          onChanged: (val) {
+                            item.selected = val ?? false;
+                            widget.onSelectionChanged();
+                          },
                         ),
-                        Text(
-                          '${item.description}  ·  Modified: ${FormatUtils.formatDate(item.lastModified)}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: colorScheme.onSurfaceVariant,
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isCompact) ...[
+                                Row(
+                                  children: [
+                                    DataCategoryBadge(item: item),
+                                    const Spacer(),
+                                    Text(
+                                      FormatUtils.formatBytes(item.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    revealBtn,
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                              ] else
+                                Row(
+                                  children: [
+                                    DataCategoryBadge(item: item),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13.5,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      FormatUtils.formatBytes(item.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    revealBtn,
+                                  ],
+                                ),
+                              const SizedBox(height: 3),
+                              Text(
+                                item.path,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${item.description}  ·  Modified: ${FormatUtils.formatDate(item.lastModified)}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                    trailing: IconButton(
-                      icon: Icon(
-                        item.isRegistryKey
-                            ? Icons.account_tree_outlined
-                            : Icons.folder_open_rounded,
-                        size: 18,
-                      ),
-                      tooltip: item.isRegistryKey
-                          ? 'Open in Registry Editor (regedit)'
-                          : 'Reveal in File Manager',
-                      onPressed: () => widget.onRevealPath(item.path),
                     ),
                   );
                 },
@@ -1137,44 +1184,91 @@ class _AppDetailPanelState extends State<AppDetailPanel> {
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final dep = app.linuxDependencies[index];
-                  return CheckboxListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    value: dep.selected,
-                    onChanged: (val) {
-                      dep.selected = val ?? false;
-                      widget.onSelectionChanged();
-                    },
-                    title: Row(
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          child: Text(
-                            dep.packageName,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'monospace',
-                              fontSize: 13.5,
-                            ),
-                          ),
+                        Checkbox(
+                          visualDensity: VisualDensity.compact,
+                          value: dep.selected,
+                          onChanged: (val) {
+                            dep.selected = val ?? false;
+                            widget.onSelectionChanged();
+                          },
                         ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: LinuxDepSafetyBadge(dependency: dep),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          FormatUtils.formatBytes(dep.sizeBytes),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isCompact) ...[
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        dep.packageName,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'monospace',
+                                          fontSize: 13.5,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      FormatUtils.formatBytes(dep.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                LinuxDepSafetyBadge(dependency: dep),
+                              ] else
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        dep.packageName,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'monospace',
+                                          fontSize: 13.5,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child:
+                                          LinuxDepSafetyBadge(dependency: dep),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      FormatUtils.formatBytes(dep.sizeBytes),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'v${dep.version} · ${dep.description}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                    subtitle: Text(
-                      'v${dep.version} · ${dep.description}',
-                      style: const TextStyle(fontSize: 12),
                     ),
                   );
                 },

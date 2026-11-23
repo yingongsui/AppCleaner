@@ -1378,61 +1378,73 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: app.isSelfApp
-                                ? Colors.blue
-                                    .withValues(alpha: isDark ? 0.28 : 0.16)
-                                : (isSystem
-                                    ? Colors.amber
-                                        .withValues(alpha: isDark ? 0.24 : 0.2)
-                                    : Colors.indigo.withValues(
-                                        alpha: isDark ? 0.28 : 0.14,
-                                      )),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            app.isSelfApp ? 'Self-Locked' : app.origin.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: app.isSelfApp
-                                  ? (isDark
-                                      ? Colors.lightBlue.shade200
-                                      : Colors.blue.shade800)
-                                  : (isSystem
+                  LayoutBuilder(
+                    builder: (context, subConstraints) {
+                      final maxBadgeWidth =
+                          (subConstraints.maxWidth * 0.65).clamp(40.0, 96.0);
+                      return Row(
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: maxBadgeWidth,
+                            ),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: app.isSelfApp
+                                    ? Colors.blue
+                                        .withValues(alpha: isDark ? 0.28 : 0.16)
+                                    : (isSystem
+                                        ? Colors.amber.withValues(
+                                            alpha: isDark ? 0.24 : 0.2,
+                                          )
+                                        : Colors.indigo.withValues(
+                                            alpha: isDark ? 0.28 : 0.14,
+                                          )),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                app.isSelfApp
+                                    ? 'Self-Locked'
+                                    : app.origin.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: app.isSelfApp
                                       ? (isDark
-                                          ? Colors.amber.shade300
-                                          : Colors.amber.shade900)
-                                      : (isDark
-                                          ? Colors.indigo.shade200
-                                          : Colors.indigo.shade800)),
+                                          ? Colors.lightBlue.shade200
+                                          : Colors.blue.shade800)
+                                      : (isSystem
+                                          ? (isDark
+                                              ? Colors.amber.shade300
+                                              : Colors.amber.shade900)
+                                          : (isDark
+                                              ? Colors.indigo.shade200
+                                              : Colors.indigo.shade800)),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          '${app.platform.label} · ${app.installSource.label}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: colorScheme.onSurfaceVariant,
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${app.platform.label} · ${app.installSource.label}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
