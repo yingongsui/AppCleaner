@@ -291,24 +291,49 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     final cacheBytes = app.cacheSizeBytes;
     if (cacheBytes == 0) return;
 
+    bool moveToTrash = true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Clear Cache for "${app.name}"?'),
-        content: Text(
-          'This will remove runtime cache, logs, and saved session state (${FormatUtils.formatBytes(cacheBytes)}).\n'
-          'Your user accounts, preferences, Registry settings, and the application binary will be preserved.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Clear Cache for "${app.name}"?'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'This will clean runtime cache, logs, and saved session state (${FormatUtils.formatBytes(cacheBytes)}).\n'
+                  'Your user accounts, preferences, Registry settings, and the application binary will be preserved.',
+                ),
+                const SizedBox(height: 14),
+                DeletionModeToggle(
+                  moveToTrash: moveToTrash,
+                  onChanged: (v) => setDialogState(() => moveToTrash = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: moveToTrash
+                  ? null
+                  : FilledButton.styleFrom(
+                      backgroundColor: Theme.of(ctx).colorScheme.error,
+                      foregroundColor: Theme.of(ctx).colorScheme.onError,
+                    ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(
+                moveToTrash ? 'Clear Cache (Move to Trash)' : 'Clear Cache Permanently',
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Clear Cache'),
-          ),
-        ],
       ),
     );
 
@@ -318,6 +343,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       app: app,
       cacheOnly: true,
       onlySelected: false,
+      moveToTrash: moveToTrash,
     );
     _recordOperation('Clear Cache: ${app.name}', res);
   }
@@ -327,37 +353,57 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     final selectedCount = app.dataItems.where((d) => d.selected).length;
     if (selectedCount == 0) return;
 
+    bool moveToTrash = true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(
-          Icons.restart_alt_rounded,
-          color: Colors.teal,
-          size: 36,
-        ),
-        title: Text('Reset App Data for "${app.name}"?'),
-        content: SizedBox(
-          width: 480,
-          child: Text(
-            'This will delete the $selectedCount selected data, configuration, sandbox container, cache, and Registry items (${FormatUtils.formatBytes(selectedBytes)}).\n\n'
-            '• The application binary (${app.installPath}) will NOT be uninstalled.\n'
-            '• Next time you launch the app, it will start in a clean, freshly-installed state.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          icon: const Icon(
+            Icons.restart_alt_rounded,
+            color: Colors.teal,
+            size: 36,
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.teal.shade700,
-              foregroundColor: Colors.white,
+          title: Text('Reset App Data for "${app.name}"?'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'This will remove the $selectedCount selected data, configuration, sandbox container, cache, and Registry items (${FormatUtils.formatBytes(selectedBytes)}).\n\n'
+                  '• The application binary (${app.installPath}) will NOT be uninstalled.\n'
+                  '• Next time you launch the app, it will start in a clean, freshly-installed state.',
+                ),
+                const SizedBox(height: 14),
+                DeletionModeToggle(
+                  moveToTrash: moveToTrash,
+                  onChanged: (v) => setDialogState(() => moveToTrash = v),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('Reset App Data (${FormatUtils.formatBytes(selectedBytes)})'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: moveToTrash
+                    ? Colors.teal.shade700
+                    : Theme.of(ctx).colorScheme.error,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(
+                moveToTrash
+                    ? 'Move to Trash (${FormatUtils.formatBytes(selectedBytes)})'
+                    : 'Delete Permanently (${FormatUtils.formatBytes(selectedBytes)})',
+              ),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -367,6 +413,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       app: app,
       cacheOnly: false,
       onlySelected: true,
+      moveToTrash: moveToTrash,
     );
     _recordOperation('Reset App Data: ${app.name}', res);
   }
@@ -382,7 +429,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       app: app,
       removeSelectedData: choices.removeSelectedData,
       removeSelectedLinuxDeps: choices.removeSelectedLinuxDeps,
-      moveToTrashOnMac: choices.moveToTrashOnMac,
+      moveToTrash: choices.moveToTrash,
     );
 
     setState(() {
@@ -410,33 +457,57 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     );
     if (selectedCount == 0) return;
 
+    bool moveToTrash = true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Clean Selected Orphaned Leftovers?'),
-        content: Text(
-          'This will permanently remove $selectedCount orphaned files, directories, and Windows Registry keys left behind by uninstalled apps, freeing ${FormatUtils.formatBytes(selectedBytes)}.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Clean Selected Orphaned Leftovers?'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Selected $selectedCount orphaned files, directories, or Windows Registry keys (${FormatUtils.formatBytes(selectedBytes)}).',
+                ),
+                const SizedBox(height: 14),
+                DeletionModeToggle(
+                  moveToTrash: moveToTrash,
+                  onChanged: (v) => setDialogState(() => moveToTrash = v),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Clean Leftovers'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: moveToTrash
+                  ? null
+                  : FilledButton.styleFrom(
+                      backgroundColor: Theme.of(ctx).colorScheme.error,
+                      foregroundColor: Theme.of(ctx).colorScheme.onError,
+                    ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(
+                moveToTrash ? 'Move to Trash' : 'Delete Permanently',
+              ),
+            ),
+          ],
+        ),
       ),
     );
 
     if (confirmed != true || !mounted) return;
 
-    final res = await _service.cleanOrphanLeftovers(_orphanGroups);
+    final res = await _service.cleanOrphanLeftovers(
+      _orphanGroups,
+      moveToTrash: moveToTrash,
+    );
     setState(() {
       _orphanGroups.removeWhere((g) => g.items.isEmpty);
     });

@@ -38,6 +38,7 @@ class AppCleanerPlatformBackend {
     required bool cacheOnly,
     bool onlySelected = true,
     bool terminateIfRunning = true,
+    bool moveToTrash = true,
   }) async {
     if (app.isSelfApp) {
       return const CleanActionResult(
@@ -79,10 +80,17 @@ class AppCleanerPlatformBackend {
         logs.add(
           '[Web Simulator] Backed up & deleted Registry key: reg delete "${item.path}" /f',
         );
+      } else {
+        logs.add(
+          moveToTrash
+              ? '[Web Simulator] Moved to System Trash: ${item.path}'
+              : '[Web Simulator] Permanently deleted: ${item.path}',
+        );
       }
       app.dataItems.remove(item);
     }
 
+    final modeText = moveToTrash ? 'moved to Trash' : 'permanently deleted';
     return CleanActionResult(
       success: true,
       deletedCount: deletedPaths.length,
@@ -90,8 +98,8 @@ class AppCleanerPlatformBackend {
       deletedPaths: deletedPaths,
       commandLogs: logs,
       summaryMessage: cacheOnly
-          ? 'Cleared cache for ${app.name}, freed ${FormatUtils.formatBytes(freed)} (app binary and user settings preserved).'
-          : 'Reset all selected user data, registry keys & cache for ${app.name}, freed ${FormatUtils.formatBytes(freed)} (app binary kept intact).',
+          ? 'Cleared cache for ${app.name} ($modeText), freed ${FormatUtils.formatBytes(freed)} (app binary and user settings preserved).'
+          : 'Reset all selected user data, registry keys & cache for ${app.name} ($modeText), freed ${FormatUtils.formatBytes(freed)} (app binary kept intact).',
     );
   }
 
@@ -99,7 +107,7 @@ class AppCleanerPlatformBackend {
     required InstalledApp app,
     required bool removeSelectedData,
     required bool removeSelectedLinuxDeps,
-    bool moveToTrashOnMac = true,
+    bool moveToTrash = true,
   }) async {
     if (app.isSelfApp) {
       return const CleanActionResult(
@@ -135,6 +143,12 @@ class AppCleanerPlatformBackend {
           logs.add(
             '[Web Simulator] Backed up & deleted Registry key: reg delete "${item.path}" /f',
           );
+        } else {
+          logs.add(
+            moveToTrash
+                ? '[Web Simulator] Moved leftover to System Trash: ${item.path}'
+                : '[Web Simulator] Permanently deleted leftover: ${item.path}',
+          );
         }
         app.dataItems.remove(item);
       }
@@ -157,7 +171,7 @@ class AppCleanerPlatformBackend {
       }
     } else if (app.platform == DesktopPlatformType.macos) {
       logs.add(
-        moveToTrashOnMac
+        moveToTrash
             ? '[Web Simulator] Moved ${app.installPath} to ~/.Trash'
             : '[Web Simulator] Permanently deleted ${app.installPath}',
       );
@@ -182,8 +196,9 @@ class AppCleanerPlatformBackend {
   }
 
   Future<CleanActionResult> cleanOrphanLeftovers(
-    List<OrphanLeftoverGroup> groups,
-  ) async {
+    List<OrphanLeftoverGroup> groups, {
+    bool moveToTrash = true,
+  }) async {
     int freed = 0;
     final deletedPaths = <String>[];
     final logs = <String>[];
@@ -195,6 +210,12 @@ class AppCleanerPlatformBackend {
         if (item.isRegistryKey) {
           logs.add(
             '[Web Simulator] Backed up & deleted orphaned Registry key: reg delete "${item.path}" /f',
+          );
+        } else {
+          logs.add(
+            moveToTrash
+                ? '[Web Simulator] Moved orphaned leftover to System Trash: ${item.path}'
+                : '[Web Simulator] Permanently deleted orphaned leftover: ${item.path}',
           );
         }
         group.items.remove(item);
@@ -208,8 +229,9 @@ class AppCleanerPlatformBackend {
       freedBytes: freed,
       deletedPaths: deletedPaths,
       commandLogs: logs,
-      summaryMessage:
-          'Cleaned ${deletedPaths.length} orphaned leftover items, freeing ${FormatUtils.formatBytes(freed)}.',
+      summaryMessage: moveToTrash
+          ? 'Moved ${deletedPaths.length} orphaned leftover items to System Trash (${FormatUtils.formatBytes(freed)}).'
+          : 'Permanently deleted ${deletedPaths.length} orphaned leftover items, freeing ${FormatUtils.formatBytes(freed)}.',
     );
   }
 

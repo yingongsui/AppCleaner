@@ -35,31 +35,37 @@ class AppCleanerService {
     required bool cacheOnly,
     bool onlySelected = true,
     bool terminateIfRunning = true,
+    bool moveToTrash = true,
   }) =>
       _backend.clearAppData(
         app: app,
         cacheOnly: cacheOnly,
         onlySelected: onlySelected,
         terminateIfRunning: terminateIfRunning,
+        moveToTrash: moveToTrash,
       );
 
   Future<CleanActionResult> uninstallApp({
     required InstalledApp app,
     required bool removeSelectedData,
     required bool removeSelectedLinuxDeps,
-    bool moveToTrashOnMac = true,
+    bool moveToTrash = true,
   }) =>
       _backend.uninstallApp(
         app: app,
         removeSelectedData: removeSelectedData,
         removeSelectedLinuxDeps: removeSelectedLinuxDeps,
-        moveToTrashOnMac: moveToTrashOnMac,
+        moveToTrash: moveToTrash,
       );
 
   Future<CleanActionResult> cleanOrphanLeftovers(
-    List<OrphanLeftoverGroup> groups,
-  ) =>
-      _backend.cleanOrphanLeftovers(groups);
+    List<OrphanLeftoverGroup> groups, {
+    bool moveToTrash = true,
+  }) =>
+      _backend.cleanOrphanLeftovers(
+        groups,
+        moveToTrash: moveToTrash,
+      );
 
   Future<bool> terminateRunningApp(InstalledApp app) =>
       _backend.terminateRunningApp(app);

@@ -23,19 +23,19 @@ class UninstallConfirmDialog extends StatefulWidget {
 class UninstallDialogChoices {
   final bool removeSelectedData;
   final bool removeSelectedLinuxDeps;
-  final bool moveToTrashOnMac;
+  final bool moveToTrash;
 
   const UninstallDialogChoices({
     required this.removeSelectedData,
     required this.removeSelectedLinuxDeps,
-    required this.moveToTrashOnMac,
+    required this.moveToTrash,
   });
 }
 
 class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
   bool _removeSelectedData = true;
   bool _removeSelectedLinuxDeps = true;
-  bool _moveToTrashOnMac = true;
+  bool _moveToTrash = true;
 
   @override
   Widget build(BuildContext context) {
@@ -115,17 +115,13 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
                 title: 'Application Binary (${app.installSource.label})',
                 subtitle: app.installPath,
                 trailingText: FormatUtils.formatBytes(app.appSizeBytes),
-                child: app.platform == DesktopPlatformType.macos
-                    ? SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: const Text(
-                          'Move to Trash (allows restoring from Trash; disable to delete permanently)',
-                        ),
-                        value: _moveToTrashOnMac,
-                        onChanged: (v) => setState(() => _moveToTrashOnMac = v),
-                      )
-                    : null,
+              ),
+              const SizedBox(height: 12),
+
+              // Deletion mode toggle (System Trash vs Permanent Delete)
+              DeletionModeToggle(
+                moveToTrash: _moveToTrash,
+                onChanged: (v) => setState(() => _moveToTrash = v),
               ),
               const SizedBox(height: 12),
 
@@ -307,7 +303,7 @@ class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
               UninstallDialogChoices(
                 removeSelectedData: _removeSelectedData,
                 removeSelectedLinuxDeps: _removeSelectedLinuxDeps,
-                moveToTrashOnMac: _moveToTrashOnMac,
+                moveToTrash: _moveToTrash,
               ),
             );
           },

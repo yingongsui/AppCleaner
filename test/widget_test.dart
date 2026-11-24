@@ -10,6 +10,8 @@ class FakeAppCleanerService extends AppCleanerService {
   final List<InstalledApp> mockApps;
   final List<OrphanLeftoverGroup> mockOrphans;
   List<OperationLogEntry> savedHistory = [];
+  bool? lastClearMoveToTrash;
+  bool? lastOrphanMoveToTrash;
 
   FakeAppCleanerService({
     required this.mockApps,
@@ -56,7 +58,9 @@ class FakeAppCleanerService extends AppCleanerService {
     required bool cacheOnly,
     bool onlySelected = true,
     bool terminateIfRunning = true,
+    bool moveToTrash = true,
   }) async {
+    lastClearMoveToTrash = moveToTrash;
     final targets = app.dataItems.where((item) {
       if (cacheOnly && !item.isCacheLike) return false;
       if (onlySelected && !item.selected) return false;
@@ -72,6 +76,30 @@ class FakeAppCleanerService extends AppCleanerService {
       deletedCount: targets.length,
       freedBytes: freed,
       summaryMessage: 'Cleaned ${targets.length} items.',
+    );
+  }
+
+  @override
+  Future<CleanActionResult> cleanOrphanLeftovers(
+    List<OrphanLeftoverGroup> groups, {
+    bool moveToTrash = true,
+  }) async {
+    lastOrphanMoveToTrash = moveToTrash;
+    int freed = 0;
+    int deleted = 0;
+    for (final group in groups) {
+      final targets = group.items.where((i) => i.selected).toList();
+      for (final item in targets) {
+        freed += item.sizeBytes;
+        deleted++;
+        group.items.remove(item);
+      }
+    }
+    return CleanActionResult(
+      success: true,
+      deletedCount: deleted,
+      freedBytes: freed,
+      summaryMessage: 'Cleaned $deleted orphaned items.',
     );
   }
 }
@@ -413,14 +441,16 @@ End-Date: 2026-11-20  10:15:22
     expect(find.text('libteststudio-engine0'), findsOneWidget);
     expect(find.text('TestStudio Registry Key'), findsOneWidget);
 
-    // 3. Test Android-style "Clear Cache Only" without uninstalling app, and verify history saved!
+    // 3. Test Android-style "Clear Cache Only" without uninstalling app, verify Move to Trash default & history saved!
     await tester.tap(find.textContaining('Clear Cache Only'));
     await tester.pumpAndSettle();
-    expect(find.text('Clear Cache'), findsOneWidget);
-    await tester.tap(find.text('Clear Cache'));
+    expect(find.text('Move to System Trash (Recoverable)'), findsOneWidget);
+    expect(find.text('Clear Cache (Move to Trash)'), findsOneWidget);
+    await tester.tap(find.text('Clear Cache (Move to Trash)'));
     await tester.pumpAndSettle();
 
-    // Cache item removed, preferences and registry items remain, history persisted, and floating capsule toast shown!
+    // Cache item removed (via Move to Trash default), preferences and registry items remain, history persisted, and floating capsule toast shown!
+    expect(fakeService.lastClearMoveToTrash, isTrue);
     expect(userApp.cacheSizeBytes, 0);
     expect(userApp.registryItemsCount, 1);
     expect(fakeService.savedHistory.length, 1);
@@ -450,12 +480,32 @@ End-Date: 2026-11-20  10:15:22
     expect(find.text('Safari'), findsWidgets);
     expect(find.text('System App (Protected)'), findsOneWidget);
 
-    // 6. Switch to Orphaned Leftovers tab and verify items default to deselected (0 items)
+    // 6. Switch to Orphaned Leftovers tab, verify default deselected, then Select All & test Trash/Permanent toggle!
     await tester.tap(find.text('Orphaned Leftovers'));
     await tester.pumpAndSettle();
     expect(find.text('OldUninstalledApp'), findsOneWidget);
     expect(find.text('15.0 MB'), findsWidgets);
     expect(find.text('Clean Selected (0 items · 0 B)'), findsOneWidget);
+
+    await tester.tap(find.text('Select All'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Clean Selected (1 items'));
+    await tester.pumpAndSettle();
+
+    // Defaults to Move to System Trash (Recoverable)
+    expect(find.text('Move to System Trash (Recoverable)'), findsOneWidget);
+    expect(find.text('Move to Trash'), findsOneWidget);
+    // Toggle off -> Permanently Delete (Irreversible)
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('Permanently Delete (Irreversible)'), findsOneWidget);
+    expect(find.text('Delete Permanently'), findsOneWidget);
+    // Toggle back on -> Move to Trash and confirm
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to Trash'));
+    await tester.pumpAndSettle();
+    expect(fakeService.lastOrphanMoveToTrash, isTrue);
   });
 
   testWidgets('Half-screen compact layout renders cleanly without overflow and top-aligns details',

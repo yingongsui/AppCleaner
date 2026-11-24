@@ -218,6 +218,75 @@ class CommandPreviewBox extends StatelessWidget {
   }
 }
 
+/// Reusable toggle card for cleanup confirmation dialogs letting the user
+/// choose between moving files to the OS Trash / Recycle Bin (recoverable,
+/// default) or permanently deleting them from disk.
+class DeletionModeToggle extends StatelessWidget {
+  final bool moveToTrash;
+  final ValueChanged<bool> onChanged;
+
+  const DeletionModeToggle({
+    super.key,
+    required this.moveToTrash,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final bgColor = moveToTrash
+        ? colorScheme.primaryContainer.withValues(alpha: isDark ? 0.30 : 0.35)
+        : colorScheme.errorContainer.withValues(alpha: isDark ? 0.35 : 0.45);
+    final borderColor = moveToTrash
+        ? colorScheme.primary.withValues(alpha: 0.35)
+        : colorScheme.error.withValues(alpha: 0.45);
+    final iconColor = moveToTrash ? colorScheme.primary : colorScheme.error;
+
+    return Material(
+      color: bgColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: borderColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile.adaptive(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        dense: true,
+        secondary: Icon(
+          moveToTrash
+              ? Icons.restore_from_trash_rounded
+              : Icons.delete_forever_rounded,
+          color: iconColor,
+        ),
+        title: Text(
+          moveToTrash
+              ? 'Move to System Trash (Recoverable)'
+              : 'Permanently Delete (Irreversible)',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: moveToTrash ? colorScheme.onSurface : colorScheme.error,
+          ),
+        ),
+        subtitle: Text(
+          moveToTrash
+              ? 'Files will be moved to your system Trash / Recycle Bin so you can restore them if needed.'
+              : 'Files will be permanently erased from disk and cannot be recovered.',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        value: moveToTrash,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
 /// Visual tone for bottom floating capsule notifications.
 enum CapsuleToastTone {
   info,
