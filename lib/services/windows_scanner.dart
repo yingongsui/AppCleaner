@@ -292,10 +292,10 @@ $results | ConvertTo-Json -Compress
           FormatUtils.basename(app.installPath).length >= 3)
         FormatUtils.basename(app.installPath),
     };
-    final normTokens = tokens
-        .map(FormatUtils.normalizeToken)
-        .where((t) => t.length >= 3)
-        .toSet();
+    final normTokens = <String>{};
+    for (final raw in tokens) {
+      PlatformParsers.addNormalizedAppTokens(normTokens, raw);
+    }
 
     final searchDirs = <({
       String path,
@@ -334,7 +334,7 @@ $results | ConvertTo-Json -Compress
         final base = FormatUtils.basename(entry.path);
         final normBase = FormatUtils.normalizeToken(base);
         if (normBase.length >= 3 &&
-            normTokens.contains(normBase) &&
+            PlatformParsers.matchesInstalledIdentifier(base, normTokens) &&
             seenPaths.add(entry.path)) {
           final size = await IoFileUtils.calculateEntitySize(entry.path);
           final stat = await FileStat.stat(entry.path);
@@ -549,10 +549,33 @@ $results | ConvertTo-Json -Compress
         app.publisher,
         FormatUtils.basename(app.installPath),
       ]) {
-        final norm = FormatUtils.normalizeToken(raw);
-        if (norm.length >= 2) installedNorms.add(norm);
+        PlatformParsers.addNormalizedAppTokens(installedNorms, raw);
       }
     }
+
+    // Cross-reference CLI tools in PATH so developer/CLI folders aren't flagged.
+    final pathEnv = Platform.environment['PATH'] ?? '';
+    for (final dirPath in pathEnv.split(';')) {
+      final trimmed = dirPath.trim();
+      if (trimmed.isEmpty) continue;
+      final dir = Directory(trimmed);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(followLinks: false)) {
+          if (entity is! File) continue;
+          final name = FormatUtils.basename(entity.path).toLowerCase();
+          if (name.endsWith('.exe') || name.endsWith('.cmd')) {
+            final stem = name.substring(0, name.length - 4);
+            if (stem.length >= 3) {
+              PlatformParsers.addNormalizedAppTokens(installedNorms, stem);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final ignoredLower =
+        _ignoredWindowsOrphanDirs.map((e) => e.toLowerCase()).toSet();
 
     final targets = <({String path, DataCategory category})>[
       (path: _appDataRoaming, category: DataCategory.preferences),
@@ -575,13 +598,21 @@ $results | ConvertTo-Json -Compress
       }
 
       for (final entry in entries) {
+        if (entry is! Directory) continue;
         final base = FormatUtils.basename(entry.path);
+        final baseLower = base.toLowerCase();
+        final strippedLower =
+            PlatformParsers.stripVersionAndChannelSuffix(base).toLowerCase();
         if (base.startsWith('.') ||
-            _ignoredWindowsOrphanDirs.contains(base)) {
+            ignoredLower.contains(baseLower) ||
+            ignoredLower.contains(strippedLower)) {
           continue;
         }
         final norm = FormatUtils.normalizeToken(base);
-        if (norm.length < 3 || installedNorms.contains(norm)) continue;
+        if (norm.length < 3 ||
+            PlatformParsers.matchesInstalledIdentifier(base, installedNorms)) {
+          continue;
+        }
 
         final size = await IoFileUtils.calculateEntitySize(
           entry.path,
@@ -590,8 +621,12 @@ $results | ConvertTo-Json -Compress
         if (size == 0) continue;
 
         final stat = await FileStat.stat(entry.path);
-        titles.putIfAbsent(norm, () => base);
-        grouped.putIfAbsent(norm, () => []).add(
+        final groupKey = FormatUtils.normalizeToken(
+          PlatformParsers.stripVersionAndChannelSuffix(base),
+        );
+        final key = groupKey.length >= 3 ? groupKey : norm;
+        titles.putIfAbsent(key, () => base);
+        grouped.putIfAbsent(key, () => []).add(
               AppDataItem(
                 id: entry.path,
                 name: base,
@@ -616,20 +651,31 @@ $results | ConvertTo-Json -Compress
           final trimmed = line.trim();
           if (!trimmed.startsWith(r'HKEY_CURRENT_USER\Software\')) continue;
           final sub = trimmed.substring(r'HKEY_CURRENT_USER\Software\'.length);
+          final subLower = sub.toLowerCase();
+          final strippedSubLower =
+              PlatformParsers.stripVersionAndChannelSuffix(sub).toLowerCase();
           if (sub.isEmpty ||
               sub.contains(r'\') ||
-              _ignoredWindowsOrphanDirs.contains(sub)) {
+              ignoredLower.contains(subLower) ||
+              ignoredLower.contains(strippedSubLower)) {
             continue;
           }
           final norm = FormatUtils.normalizeToken(sub);
-          if (norm.length < 3 || installedNorms.contains(norm)) continue;
+          if (norm.length < 3 ||
+              PlatformParsers.matchesInstalledIdentifier(sub, installedNorms)) {
+            continue;
+          }
 
           final keyPath = 'HKCU\\Software\\$sub';
           final info = await _inspectRegistryKey(keyPath);
           if (!info.exists || info.valueCount <= 1) continue;
 
-          titles.putIfAbsent(norm, () => sub);
-          grouped.putIfAbsent(norm, () => []).add(
+          final groupKey = FormatUtils.normalizeToken(
+            PlatformParsers.stripVersionAndChannelSuffix(sub),
+          );
+          final key = groupKey.length >= 3 ? groupKey : norm;
+          titles.putIfAbsent(key, () => sub);
+          grouped.putIfAbsent(key, () => []).add(
                 AppDataItem(
                   id: 'reg:$keyPath',
                   name: '$sub (Registry Key)',

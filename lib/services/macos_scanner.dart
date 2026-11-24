@@ -75,127 +75,158 @@ class MacOsAppScanner {
 
   static const Set<String> _ignoredOrphanNames = {
     'apple',
-    'Caches',
-    'CloudDocs',
+    'icloud',
+    'cloudkit',
+    'clouddocs',
+    'caches',
     'com.apple',
-    'Knowledge',
-    'Metadata',
-    'Mobile Documents',
-    'Preferences',
-    'Saved Application State',
-    'SyncedPreferences',
-    'WebKit',
-    'HTTPStorages',
-    'Cookies',
-    'Containers',
-    'Group Containers',
-    'Application Support',
-    'LaunchAgents',
-    'Logs',
-    'AddressBook',
-    'Assistants',
-    'Audio',
-    'Autosave Information',
-    'Accounts',
-    'Calendars',
-    'CallServices',
-    'ColorPickers',
-    'Colors',
-    'Compositions',
-    'ConfigurationProfiles',
-    'Contacts',
-    'CoreData',
-    'CoreFollowUp',
-    'Daemon Containers',
-    'DataDeliveryServices',
-    'Developer',
-    'Dictionaries',
-    'DirectoryServices',
-    'DisplayServices',
-    'DoNotDisturb',
-    'Favorites',
-    'FileProvider',
-    'Finance',
-    'FontCollections',
-    'Fonts',
-    'FrontBoard',
-    'GameKit',
-    'GeoServices',
-    'HomeKit',
-    'IdentityServices',
-    'Input Methods',
-    'Internet Plug-Ins',
-    'Keyboard',
-    'Keyboard Layouts',
-    'KeyboardServices',
-    'Keychains',
-    'LanguageModeling',
-    'LaunchDaemons',
-    'LocationBundles',
-    'Mail',
-    'Maps',
-    'MediaStream',
-    'Messages',
-    'News',
-    'Notes',
-    'Passes',
-    'PDF Services',
-    'PersonalizationPortrait',
-    'Personas',
-    'Photos',
-    'PreferencePanes',
-    'Printers',
-    'QuickLook',
-    'Receipts',
-    'Reminders',
-    'ResponseKit',
-    'Safari',
-    'SafariSafeBrowsing',
-    'Screen Savers',
-    'ScreenRecordings',
-    'Scripts',
-    'Security',
-    'Services',
-    'Sharing',
-    'Shortcuts',
-    'Siri',
-    'Sounds',
-    'Speech',
-    'Spelling',
-    'Spotlight',
-    'Staging',
-    'StatusKit',
-    'Suggestions',
-    'SystemConfiguration',
-    'Trial',
-    'Translation',
-    'Updates',
-    'UserNotifications',
-    'Video',
-    'VoiceTrigger',
-    'Voices',
-    'Weather',
-    'Workflows',
-    'CrashReporter',
-    'DiagnosticReports',
-    'Homebrew',
+    'knowledge',
+    'metadata',
+    'mobile documents',
+    'mobilesync',
+    'preferences',
+    'saved application state',
+    'syncedpreferences',
+    'webkit',
+    'httpstorages',
+    'cookies',
+    'containers',
+    'group containers',
+    'application support',
+    'application scripts',
+    'launchagents',
+    'logs',
+    'addressbook',
+    'assistants',
+    'audio',
+    'autosave information',
+    'accounts',
+    'biome',
+    'calendars',
+    'callhistorydb',
+    'callhistorytransactions',
+    'callservices',
+    'colorpickers',
+    'colors',
+    'colorsync',
+    'compositions',
+    'configurationprofiles',
+    'contacts',
+    'coredata',
+    'coreduet',
+    'corefollowup',
+    'coresimulator',
+    'crashreporter',
+    'daemon containers',
+    'datadeliveryservices',
+    'developer',
+    'diagnosticreports',
+    'dictionaries',
+    'directoryservices',
+    'diskimages',
+    'displayservices',
+    'dock',
+    'donotdisturb',
+    'duetexpertcenter',
+    'familycircle',
+    'favorites',
+    'fileprovider',
+    'finance',
+    'fontcollections',
+    'fonts',
+    'frontboard',
+    'gamekit',
+    'geoservices',
+    'homekit',
+    'identityservices',
+    'input methods',
+    'intents',
+    'internet plug-ins',
+    'keyboard',
+    'keyboard layouts',
+    'keyboardservices',
+    'keychains',
+    'languagemodeling',
+    'launchdaemons',
+    'locationbundles',
+    'mail',
+    'maps',
+    'mediaanalysis',
+    'messages',
+    'news',
+    'notes',
+    'parsec',
+    'passes',
+    'personalizationportrait',
+    'photos',
+    'proactive',
+    'pubsub',
+    'quicklook',
+    'receipts',
+    'reminders',
+    'safari',
+    'screentime',
+    'sharing',
+    'siri',
+    'spelling',
+    'spotlight',
+    'statuskit',
+    'suggestions',
+    'syncservices',
+    'translation',
+    'trial',
+    'usernotifications',
+    'voicetrigger',
+    'weather',
+    'webdriver',
+    'widgets',
+    'workflows',
+    'homebrew',
     'pip',
+    'pipx',
+    'uv',
     'npm',
-    'yarn',
     'pnpm',
+    'yarn',
+    'bun',
     'cargo',
     'rustup',
-    'go-build',
+    'go',
     'flutter',
     'dart',
     'pub',
+    'pub-cache',
+    'go-build',
     'gradle',
     'maven',
     'cocoapods',
-    'Google',
-    'Microsoft',
-    'JetBrains',
-    'Mozilla',
+    'appcleaner',
+    'app_cleaner',
+    'com.yin.appcleaner',
+    'mediastream',
+    'pdf services',
+    'personas',
+    'preferencepanes',
+    'printers',
+    'responsekit',
+    'safarisafebrowsing',
+    'screen savers',
+    'screenrecordings',
+    'scripts',
+    'security',
+    'services',
+    'shortcuts',
+    'sounds',
+    'speech',
+    'staging',
+    'systemconfiguration',
+    'updates',
+    'video',
+    'voices',
+    'google',
+    'microsoft',
+    'jetbrains',
+    'mozilla',
   };
 
   /// Scans all installed macOS applications.
@@ -676,9 +707,10 @@ class MacOsAppScanner {
         }
 
         if (!matched && target.matchByName) {
-          final normBase = FormatUtils.normalizeToken(base);
-          if (normBase.length >= 3 &&
-              normalizedNameTokens.contains(normBase)) {
+          if (PlatformParsers.matchesInstalledIdentifier(
+            base,
+            normalizedNameTokens,
+          )) {
             matched = true;
           }
         }
@@ -750,23 +782,65 @@ class MacOsAppScanner {
         final parts = bid.split('.');
         if (parts.length >= 3) {
           installedBundlePrefixes.add('${parts[0]}.${parts[1]}.${parts[2]}');
+          // Also index vendor name (e.g. `com.google.Chrome` -> `google`)
+          // so shared vendor folders aren't falsely flagged while vendor apps exist.
+          final vendorNorm = FormatUtils.normalizeToken(parts[1]);
+          if (vendorNorm.length >= 4 &&
+              const {'apple', 'example', 'opensource', 'desktop'}
+                      .contains(vendorNorm) ==
+                  false) {
+            installedNormalizedNames.add(vendorNorm);
+          }
         }
-        if (parts.length >= 2) {
-          installedNormalizedNames.add(FormatUtils.normalizeToken(parts.last));
-        }
+        PlatformParsers.addNormalizedAppTokens(installedNormalizedNames, bid);
       }
-      final normName = FormatUtils.normalizeToken(app.name);
-      if (normName.length >= 2) {
-        installedNormalizedNames.add(normName);
+      PlatformParsers.addNormalizedAppTokens(
+        installedNormalizedNames,
+        app.name,
+      );
+      if (app.publisher.trim().length >= 4) {
+        PlatformParsers.addNormalizedAppTokens(
+          installedNormalizedNames,
+          app.publisher,
+        );
+      }
+      if (app.executablePath.isNotEmpty) {
+        PlatformParsers.addNormalizedAppTokens(
+          installedNormalizedNames,
+          FormatUtils.basename(app.executablePath),
+        );
       }
       final rawFile = FormatUtils.basename(app.installPath);
       final rawFolder = rawFile.endsWith('.app')
           ? rawFile.substring(0, rawFile.length - 4)
           : rawFile;
-      final normFolder = FormatUtils.normalizeToken(rawFolder);
-      if (normFolder.length >= 2) {
-        installedNormalizedNames.add(normFolder);
-      }
+      PlatformParsers.addNormalizedAppTokens(
+        installedNormalizedNames,
+        rawFolder,
+      );
+    }
+
+    // Cross-reference CLI / Homebrew tools so their caches/support folders aren't flagged.
+    for (final binPath in [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '$_homeDir/.local/bin',
+      '/opt/homebrew/Cellar',
+      '/usr/local/Cellar',
+    ]) {
+      final dir = Directory(binPath);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(followLinks: false)) {
+          final name = FormatUtils.basename(entity.path);
+          if (name.length >= 3) {
+            PlatformParsers.addNormalizedAppTokens(
+              installedNormalizedNames,
+              name,
+            );
+          }
+        }
+      } catch (_) {}
     }
 
     final scanDirs = <({
@@ -831,7 +905,8 @@ class MacOsAppScanner {
 
       for (final entry in entries) {
         final base = FormatUtils.basename(entry.path);
-        if (base.startsWith('.') || _ignoredOrphanNames.contains(base)) {
+        if (base.startsWith('.') ||
+            _ignoredOrphanNames.contains(base.toLowerCase())) {
           continue;
         }
 
@@ -877,18 +952,30 @@ class MacOsAppScanner {
               belongsToInstalled = true;
             }
           }
-          final lastToken = FormatUtils.normalizeToken(parts.last);
-          if (lastToken.length >= 4 &&
-              installedNormalizedNames.contains(lastToken)) {
+          if (!belongsToInstalled &&
+              PlatformParsers.matchesInstalledIdentifier(
+                cleanId,
+                installedNormalizedNames,
+              )) {
             belongsToInstalled = true;
           }
         }
 
         if (!belongsToInstalled && !looksLikeBundleId) {
           final norm = FormatUtils.normalizeToken(cleanId);
+          final strippedLower =
+              PlatformParsers.stripVersionAndChannelSuffix(cleanId)
+                  .toLowerCase();
           if (norm.length < 3 ||
-              installedNormalizedNames.contains(norm) ||
-              _ignoredOrphanNames.any((ig) => ig.toLowerCase() == cleanLower)) {
+              PlatformParsers.matchesInstalledIdentifier(
+                cleanId,
+                installedNormalizedNames,
+              ) ||
+              _ignoredOrphanNames.any(
+                (ig) =>
+                    ig.toLowerCase() == cleanLower ||
+                    ig.toLowerCase() == strippedLower,
+              )) {
             belongsToInstalled = true;
           }
         }

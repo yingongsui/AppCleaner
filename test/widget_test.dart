@@ -226,6 +226,61 @@ End-Date: 2026-11-20  10:15:22
       expect(FormatUtils.parseHumanSize('480 kB'), 480 * 1024);
       expect(FormatUtils.parseHumanSize('1.5 GB'), (1.5 * 1024 * 1024 * 1024).round());
     });
+
+    test(
+        'Matches versioned and channel-suffixed config folders (e.g. LyX-2.4) against installed apps',
+        () {
+      expect(PlatformParsers.stripVersionAndChannelSuffix('LyX-2.4'), 'LyX');
+      expect(PlatformParsers.stripVersionAndChannelSuffix('lyx2.4'), 'lyx');
+      expect(PlatformParsers.stripVersionAndChannelSuffix('GIMP-2.10'), 'GIMP');
+      expect(
+        PlatformParsers.stripVersionAndChannelSuffix('Blender 4.2'),
+        'Blender',
+      );
+      expect(
+        PlatformParsers.stripVersionAndChannelSuffix('python3.12'),
+        'python',
+      );
+      expect(
+        PlatformParsers.stripVersionAndChannelSuffix('discord-canary'),
+        'discord',
+      );
+
+      final installed = <String>{};
+      PlatformParsers.addNormalizedAppTokens(installed, 'LyX');
+      PlatformParsers.addNormalizedAppTokens(installed, 'GIMP');
+      PlatformParsers.addNormalizedAppTokens(installed, 'python3');
+
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('LyX-2.4', installed),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('lyx2.4.1', installed),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('org.lyx.LyX-2.4', installed),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('GIMP-2.10', installed),
+        isTrue,
+      );
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('python3.12', installed),
+        isTrue,
+      );
+      // Uninstalled app should NOT match (properly flagged as orphan)
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('Softdeluxe-3.0', installed),
+        isFalse,
+      );
+      expect(
+        PlatformParsers.matchesInstalledIdentifier('LyX-2.4', {'firefox'}),
+        isFalse,
+      );
+    });
   });
 
   testWidgets(

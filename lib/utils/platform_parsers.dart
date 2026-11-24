@@ -1,4 +1,5 @@
 import '../models/app_models.dart';
+import 'format_utils.dart';
 
 /// Pure Dart cross-platform parsers, command builders, and safety validators
 /// (safe for both Desktop and Flutter Web).
@@ -186,5 +187,194 @@ class PlatformParsers {
     }
 
     return true;
+  }
+
+  /// Strips trailing version numbers, release channels, and common config
+  /// extensions so folder/config names like `LyX-2.4`, `lyx2.4`, `GIMP-2.10`,
+  /// `python3.12`, or `discord-canary` resolve to their base app name (`LyX`,
+  /// `GIMP`, `python`, `discord`).
+  static String stripVersionAndChannelSuffix(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return '';
+
+    const extensions = [
+      '.savedstate',
+      '.binarycookies',
+      '.plist',
+      '.conf',
+      '.cfg',
+      '.ini',
+      '.json',
+      '.yaml',
+      '.yml',
+      '.xml',
+      '.toml',
+      '.db',
+      '.sqlite',
+      '.log',
+      '.cache',
+      '.app',
+      '.desktop',
+    ];
+    final lowerInit = s.toLowerCase();
+    for (final ext in extensions) {
+      if (lowerInit.endsWith(ext) && s.length > ext.length) {
+        s = s.substring(0, s.length - ext.length);
+        break;
+      }
+    }
+
+    final sepVersionReg = RegExp(
+      r'[-_.\s]+v?\d+(?:\.\d+)*(?:[-_.]?(?:alpha|beta|rc\d*|dev|nightly|canary|esr|lts|insiders|preview|snapshot))?$',
+      caseSensitive: false,
+    );
+    final attachedVersionReg = RegExp(
+      r'(?<=[a-zA-Z])v?\d+(?:\.\d+)+$',
+      caseSensitive: false,
+    );
+    final channelOrRoleReg = RegExp(
+      r'[-_.\s]+(?:canary|beta|alpha|dev|nightly|esr|insiders|preview|lts|stable|qt5|qt6|gtk2|gtk3|gtk4|bin|data|cache|config|settings|profile|profiles|logs|helper|updater|crashpad|cef|webview|runtime|common|desktop|client|cli|gui)$',
+      caseSensitive: false,
+    );
+    final trailingMajorDigitReg =
+        RegExp(r'^([a-zA-Z][a-zA-Z0-9_-]{2,}?)\d{1,2}$');
+
+    for (var i = 0; i < 3; i++) {
+      final before = s;
+      s = s.replaceFirst(sepVersionReg, '').trim();
+      s = s.replaceFirst(attachedVersionReg, '').trim();
+      s = s.replaceFirst(channelOrRoleReg, '').trim();
+      if (s == before) break;
+    }
+
+    // Peel a trailing major version digit on 3+ letter names (e.g. python3 -> python, godot4 -> godot)
+    final digitMatch = trailingMajorDigitReg.firstMatch(s);
+    if (digitMatch != null) {
+      final candidate = digitMatch.group(1)!;
+      if (candidate.replaceAll(RegExp(r'[^a-zA-Z]'), '').length >= 3) {
+        s = candidate;
+      }
+    }
+
+    return s.trim();
+  }
+
+  /// Adds both raw normalized and version-stripped normalized tokens from [raw]
+  /// into [target] for accurate cross-referencing against installed apps/packages.
+  static void addNormalizedAppTokens(Set<String> target, String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return;
+
+    final rawNorm = FormatUtils.normalizeToken(trimmed);
+    if (rawNorm.length >= 2) {
+      target.add(rawNorm);
+    }
+
+    final stripped = stripVersionAndChannelSuffix(trimmed);
+    final strippedNorm = FormatUtils.normalizeToken(stripped);
+    if (strippedNorm.length >= 2) {
+      target.add(strippedNorm);
+    }
+
+    if (stripped.contains('.')) {
+      final parts = stripped.split('.').where((p) => p.isNotEmpty).toList();
+      if (parts.length >= 2) {
+        final last = parts.last;
+        final lastNorm = FormatUtils.normalizeToken(last);
+        if (lastNorm.length >= 3) target.add(lastNorm);
+        final lastStrippedNorm =
+            FormatUtils.normalizeToken(stripVersionAndChannelSuffix(last));
+        if (lastStrippedNorm.length >= 3) target.add(lastStrippedNorm);
+      }
+    }
+  }
+
+  /// Returns `true` if a candidate config/cache directory name (such as
+  /// `LyX-2.4`, `lyx2.4`, `GIMP-2.10`, `org.lyx.LyX`, or `discord-canary`)
+  /// matches any currently installed application, package, or CLI binary token.
+  static bool matchesInstalledIdentifier(
+    String candidateRaw,
+    Set<String> installedNormalizedTokens,
+  ) {
+    final trimmed = candidateRaw.trim();
+    if (trimmed.isEmpty) return true;
+
+    final rawNorm = FormatUtils.normalizeToken(trimmed);
+    if (rawNorm.length < 2) return true;
+    if (installedNormalizedTokens.contains(rawNorm)) return true;
+
+    final stripped = stripVersionAndChannelSuffix(trimmed);
+    final strippedNorm = FormatUtils.normalizeToken(stripped);
+    if (strippedNorm.length >= 2 &&
+        installedNormalizedTokens.contains(strippedNorm)) {
+      return true;
+    }
+
+    // Check reverse-DNS segments on the version-stripped string first so
+    // `org.lyx.LyX-2.4` -> `org.lyx.LyX` -> trailing segment `LyX` -> `lyx`.
+    for (final candidate in {stripped, trimmed}) {
+      if (candidate.contains('.')) {
+        final parts = candidate.split('.').where((p) => p.isNotEmpty).toList();
+        if (parts.length >= 2) {
+          final last = parts.last;
+          final lastNorm = FormatUtils.normalizeToken(last);
+          if (lastNorm.length >= 3 &&
+              installedNormalizedTokens.contains(lastNorm)) {
+            return true;
+          }
+          final lastStripped =
+              FormatUtils.normalizeToken(stripVersionAndChannelSuffix(last));
+          if (lastStripped.length >= 3 &&
+              installedNormalizedTokens.contains(lastStripped)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    final segments = trimmed
+        .split(RegExp(r'[-_\s]+'))
+        .where((seg) => seg.isNotEmpty)
+        .toList();
+    if (segments.length >= 2) {
+      final first = FormatUtils.normalizeToken(segments.first);
+      final second = segments[1];
+      final secondLooksLikeVersionOrVariant =
+          RegExp(r'^v?\d').hasMatch(second) ||
+              const {
+                'config',
+                'cache',
+                'data',
+                'settings',
+                'user',
+                'profile',
+                'profiles',
+                'beta',
+                'canary',
+                'dev',
+                'nightly',
+                'esr',
+                'lts',
+                'insiders',
+                'preview',
+                'helper',
+                'updater',
+                'common',
+                'desktop',
+                'client',
+                'qt5',
+                'qt6',
+                'gtk2',
+                'gtk3',
+                'gtk4',
+              }.contains(second.toLowerCase());
+      if (secondLooksLikeVersionOrVariant &&
+          first.length >= 3 &&
+          installedNormalizedTokens.contains(first)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

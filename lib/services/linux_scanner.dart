@@ -51,19 +51,29 @@ class LinuxAppScanner {
     'gtk-4.0',
     'dconf',
     'pulse',
+    'pipewire',
+    'wireplumber',
     'systemd',
+    'dbus-1',
+    'environment.d',
     'ibus',
     'fcitx',
     'fcitx5',
     'fontconfig',
+    'fonts',
     'menus',
     'mime',
     'icons',
     'themes',
+    'backgrounds',
+    'sounds',
+    'templates',
     'applications',
     'desktop-directories',
     'keyrings',
     'gvfs-metadata',
+    'gvfs',
+    'trash',
     'tracker',
     'tracker3',
     'evolution',
@@ -71,25 +81,88 @@ class LinuxAppScanner {
     'gnome-shell',
     'gnome-control-center',
     'nautilus',
-    'KDE',
+    'kde',
     'kded5',
+    'kded6',
     'plasma',
+    'baloo',
+    'akonadi',
+    'kwalletd',
+    'xfce4',
+    'cinnamon',
+    'mate',
+    'lxqt',
+    'wayland',
+    'xorg',
+    'mutter',
+    'xdg-desktop-portal',
     'autostart',
     'user-dirs.dirs',
     'user-dirs.locale',
+    'mimeapps.list',
+    'recently-used.xbel',
+    'colord',
+    'icc',
+    'flatpak',
+    'snapd',
+    'appstream',
+    'fwupd',
+    'webkitgtk',
+    'pki',
+    'ssl',
+    'gnupg',
+    'ssh',
     'pip',
+    'pipx',
+    'uv',
+    'conda',
+    'mamba',
+    'poetry',
+    'pyenv',
     'npm',
+    'pnpm',
     'yarn',
+    'bun',
+    'deno',
+    'nvm',
+    'fnm',
     'cargo',
     'rustup',
+    'go',
+    'go-build',
+    'gradle',
+    'm2',
+    'maven',
+    'dotnet',
+    'nuget',
+    'composer',
     'flutter',
     'dart',
+    'dart-tool',
+    'pub-cache',
+    'android',
+    'huggingface',
+    'torch',
+    'matplotlib',
+    'jupyter',
+    'ipython',
+    'texmf',
+    'texlive',
+    'luatex-cache',
     'mesa_shader_cache',
+    'mesa_shader_cache_db',
+    'radv_builtin_shaders',
+    'nvidia',
+    'nv',
+    'vulkan',
+    'shadercache',
     'gstreamer-1.0',
+    'glib-2.0',
+    'gio-2.0',
+    'goa-1.0',
     'thumbnails',
-    'AppCleaner',
-    'app_cleaner',
     'appcleaner',
+    'app_cleaner',
     'com.yin.appcleaner',
   };
 
@@ -681,13 +754,12 @@ class LinuxAppScanner {
 
       for (final entry in entries) {
         final base = FormatUtils.basename(entry.path);
-        if (_ignoredLinuxOrphanFolders.contains(base)) continue;
+        if (_ignoredLinuxOrphanFolders.contains(base.toLowerCase())) continue;
 
-        final normBase = FormatUtils.normalizeToken(base);
         final matched = tokens.any(
               (t) => base.toLowerCase() == t.toLowerCase(),
             ) ||
-            (normBase.length >= 3 && normalizedTokens.contains(normBase));
+            PlatformParsers.matchesInstalledIdentifier(base, normalizedTokens);
 
         if (matched && seenPaths.add(entry.path)) {
           final size = await IoFileUtils.calculateEntitySize(entry.path);
@@ -713,6 +785,11 @@ class LinuxAppScanner {
   }
 
   /// Scans XDG directories and Flatpak/Snap user folders for orphaned leftovers on Linux.
+  ///
+  /// Cross-references GUI `.desktop` apps, ALL installed system/CLI packages
+  /// (`dpkg-query` / `pacman` / `rpm` / `flatpak` / `snap`), and installed binaries
+  /// in standard `PATH` directories, while stripping version suffixes (e.g. `LyX-2.4`
+  /// -> `lyx`) so active apps and CLI tools are not falsely flagged as leftovers.
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
     List<InstalledApp> installedApps,
   ) async {
@@ -724,17 +801,50 @@ class LinuxAppScanner {
         app.linuxPackageName ?? '',
         FormatUtils.basename(app.executablePath),
       ]) {
-        final norm = FormatUtils.normalizeToken(token);
-        if (norm.length >= 2) installedNorms.add(norm);
+        PlatformParsers.addNormalizedAppTokens(installedNorms, token);
       }
     }
 
-    final scanTargets = <({String path, DataCategory category})>[
-      (path: _xdgConfigHome, category: DataCategory.preferences),
-      (path: _xdgCacheHome, category: DataCategory.cache),
-      (path: _xdgDataHome, category: DataCategory.appData),
-      (path: '$_homeDir/.var/app', category: DataCategory.container),
-      (path: '$_homeDir/snap', category: DataCategory.container),
+    // Cross-reference all installed packages & CLI executables so non-GUI tools
+    // and versioned configs (e.g. LyX-2.4, python3.12, git, vim, tmux) aren't flagged.
+    final systemTokens = await Future.wait([
+      _fetchAllInstalledPackageTokens(),
+      _fetchInstalledPathBinaryTokens(),
+    ]);
+    for (final set in systemTokens) {
+      installedNorms.addAll(set);
+    }
+
+    final scanTargets = <({
+      String path,
+      DataCategory category,
+      bool directoriesOnly,
+    })>[
+      (
+        path: _xdgConfigHome,
+        category: DataCategory.preferences,
+        directoriesOnly: true,
+      ),
+      (
+        path: _xdgCacheHome,
+        category: DataCategory.cache,
+        directoriesOnly: true,
+      ),
+      (
+        path: _xdgDataHome,
+        category: DataCategory.appData,
+        directoriesOnly: true,
+      ),
+      (
+        path: '$_homeDir/.var/app',
+        category: DataCategory.container,
+        directoriesOnly: true,
+      ),
+      (
+        path: '$_homeDir/snap',
+        category: DataCategory.container,
+        directoriesOnly: true,
+      ),
     ];
 
     final grouped = <String, List<AppDataItem>>{};
@@ -752,13 +862,23 @@ class LinuxAppScanner {
       }
 
       for (final entry in entries) {
+        if (target.directoriesOnly && entry is! Directory) continue;
+
         final base = FormatUtils.basename(entry.path);
+        final baseLower = base.toLowerCase();
+        final strippedLower =
+            PlatformParsers.stripVersionAndChannelSuffix(base).toLowerCase();
         if (base.startsWith('.') ||
-            _ignoredLinuxOrphanFolders.contains(base)) {
+            _ignoredLinuxOrphanFolders.contains(baseLower) ||
+            _ignoredLinuxOrphanFolders.contains(strippedLower)) {
           continue;
         }
+
         final norm = FormatUtils.normalizeToken(base);
-        if (norm.length < 3 || installedNorms.contains(norm)) continue;
+        if (norm.length < 3 ||
+            PlatformParsers.matchesInstalledIdentifier(base, installedNorms)) {
+          continue;
+        }
 
         final size = await IoFileUtils.calculateEntitySize(
           entry.path,
@@ -767,8 +887,12 @@ class LinuxAppScanner {
         if (size == 0) continue;
 
         final stat = await FileStat.stat(entry.path);
-        titles.putIfAbsent(norm, () => base);
-        grouped.putIfAbsent(norm, () => []).add(
+        final groupKey = FormatUtils.normalizeToken(
+          PlatformParsers.stripVersionAndChannelSuffix(base),
+        );
+        final key = groupKey.length >= 3 ? groupKey : norm;
+        titles.putIfAbsent(key, () => base);
+        grouped.putIfAbsent(key, () => []).add(
               AppDataItem(
                 id: entry.path,
                 name: base,
@@ -794,13 +918,77 @@ class LinuxAppScanner {
           identifier: key,
           platform: DesktopPlatformType.linux,
           confidenceReason:
-              'Corresponding DEB/RPM/Pacman/Flatpak package was uninstalled',
+              'No matching installed DEB/RPM/Pacman/Flatpak/Snap package or CLI binary found',
           items: list,
         ),
       );
     });
     groups.sort((a, b) => b.totalSizeBytes.compareTo(a.totalSizeBytes));
     return groups;
+  }
+
+  /// Queries all installed packages across dpkg/pacman/rpm/flatpak/snap in bulk
+  /// so CLI tools and non-GUI packages are recognized during orphan scanning.
+  Future<Set<String>> _fetchAllInstalledPackageTokens() async {
+    final tokens = <String>{};
+
+    Future<void> runAndCollect(String exe, List<String> args,
+        {int column = 0}) async {
+      try {
+        final res = await Process.run(exe, args);
+        if (res.exitCode != 0) return;
+        for (final rawLine in (res.stdout as String).split('\n')) {
+          final line = rawLine.trim();
+          if (line.isEmpty) continue;
+          final parts = line.split(RegExp(r'\s+'));
+          if (parts.length <= column) continue;
+          final pkg = parts[column].split(':').first.trim();
+          if (pkg.isEmpty || pkg == 'Name') continue;
+          PlatformParsers.addNormalizedAppTokens(tokens, pkg);
+          // For packages like `lyx-common` or `libreoffice-core`, also index base stem.
+          if (pkg.contains('-')) {
+            final stem = pkg.split('-').first;
+            if (stem.length >= 3 && stem != 'lib') {
+              PlatformParsers.addNormalizedAppTokens(tokens, stem);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    await Future.wait([
+      runAndCollect('dpkg-query', ['-W', r'-f=${Package}\n']),
+      runAndCollect('pacman', ['-Qq']),
+      runAndCollect('rpm', ['-qa', '--qf', r'%{NAME}\n']),
+      runAndCollect('flatpak', ['list', '--columns=application']),
+      runAndCollect('snap', ['list']),
+    ]);
+
+    return tokens;
+  }
+
+  /// Collects installed executable names from standard PATH directories.
+  Future<Set<String>> _fetchInstalledPathBinaryTokens() async {
+    final tokens = <String>{};
+    final binDirs = [
+      '/usr/bin',
+      '/usr/local/bin',
+      '$_homeDir/.local/bin',
+      '/snap/bin',
+    ];
+    for (final path in binDirs) {
+      final dir = Directory(path);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(followLinks: false)) {
+          final name = FormatUtils.basename(entity.path);
+          if (name.length >= 3) {
+            PlatformParsers.addNormalizedAppTokens(tokens, name);
+          }
+        }
+      } catch (_) {}
+    }
+    return tokens;
   }
 
   Future<Set<String>> _fetchExplicitlyInstalledPackages() async {
