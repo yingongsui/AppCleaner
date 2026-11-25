@@ -254,7 +254,7 @@ class WebMockData {
         id: 'mac-preview:appcleaner',
         name: 'AppCleaner',
         identifier: 'com.yin.appcleaner',
-        version: '1.0.0',
+        version: '1.1.0',
         publisher: 'Yin',
         installPath: '/Applications/AppCleaner.app',
         executablePath:

@@ -1,7 +1,7 @@
 name: app_cleaner
 description: "Cross-platform application uninstaller, Android-style data resetter, and leftover cleaner for macOS, Linux, and Windows."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.7.0 <4.0.0"

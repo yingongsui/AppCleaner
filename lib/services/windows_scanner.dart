@@ -18,6 +18,28 @@ class WindowsAppScanner {
   String get _programData =>
       Platform.environment['ProgramData'] ?? r'C:\ProgramData';
 
+  static List<String> get builtInWhitelist =>
+      _ignoredWindowsOrphanDirs.toList()..sort();
+
+  final Map<String, ({DateTime fetchedAt, List<String> childPaths})>
+      _vendorSubdirCache = {};
+
+  Future<List<String>> _listImmediateChildPaths(String dirPath) async {
+    final now = DateTime.now();
+    final cached = _vendorSubdirCache[dirPath];
+    if (cached != null && now.difference(cached.fetchedAt).inSeconds < 20) {
+      return cached.childPaths;
+    }
+    final result = <String>[];
+    try {
+      await for (final child in Directory(dirPath).list(followLinks: false)) {
+        result.add(child.path);
+      }
+    } catch (_) {}
+    _vendorSubdirCache[dirPath] = (fetchedAt: now, childPaths: result);
+    return result;
+  }
+
   static const Set<String> _ignoredWindowsOrphanDirs = {
     'Microsoft',
     'Windows',
@@ -221,7 +243,10 @@ $results | ConvertTo-Json -Compress
 
   /// Scans %APPDATA%, %LOCALAPPDATA%, %LOCALAPPDATA%\Packages, %PROGRAMDATA%,
   /// and Windows Registry keys (HKCU\Software, HKLM\Software) for [app].
-  Future<List<AppDataItem>> scanAppDataItems(InstalledApp app) async {
+  Future<List<AppDataItem>> scanAppDataItems(
+    InstalledApp app, {
+    bool scanVendorSubfolders = true,
+  }) async {
     final items = <AppDataItem>[];
     final seenPaths = <String>{};
 
@@ -350,6 +375,41 @@ $results | ConvertTo-Json -Compress
               description: s.desc,
             ),
           );
+          continue;
+        }
+
+        // Inspect 1-level vendor subfolders (e.g. %APPDATA%\Softdeluxe\Free Download Manager)
+        if (scanVendorSubfolders &&
+            entry is Directory &&
+            !base.startsWith('.') &&
+            const {'microsoft', 'windows', 'packages', 'temp'}
+                    .contains(base.toLowerCase()) ==
+                false) {
+          final children = await _listImmediateChildPaths(entry.path);
+          for (final childPath in children) {
+            final childBase = FormatUtils.basename(childPath);
+            if (childBase.startsWith('.')) continue;
+            if (PlatformParsers.matchesInstalledIdentifier(
+                  childBase,
+                  normTokens,
+                ) &&
+                seenPaths.add(childPath)) {
+              final size = await IoFileUtils.calculateEntitySize(childPath);
+              final stat = await FileStat.stat(childPath);
+              items.add(
+                AppDataItem(
+                  id: childPath,
+                  name: '$base\\$childBase',
+                  path: childPath,
+                  category: s.category,
+                  sizeBytes: size,
+                  lastModified: stat.modified,
+                  isDirectory: stat.type == FileSystemEntityType.directory,
+                  description: '${s.desc} ($base\\$childBase)',
+                ),
+              );
+            }
+          }
         }
       }
     }
@@ -539,8 +599,9 @@ $results | ConvertTo-Json -Compress
   /// Scans %APPDATA%, %LOCALAPPDATA%, and HKCU\Software for orphaned folders
   /// and orphaned Windows Registry keys left behind by uninstalled apps.
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     final installedNorms = <String>{};
     for (final app in installedApps) {
       for (final raw in [
@@ -585,6 +646,13 @@ $results | ConvertTo-Json -Compress
     final grouped = <String, List<AppDataItem>>{};
     final titles = <String, String>{};
 
+    final pendingCandidates = <({
+      String path,
+      String base,
+      String key,
+      DataCategory category,
+    })>[];
+
     // 1. Scan file system leftovers in %APPDATA% and %LOCALAPPDATA%
     for (final t in targets) {
       final dir = Directory(t.path);
@@ -610,37 +678,66 @@ $results | ConvertTo-Json -Compress
         }
         final norm = FormatUtils.normalizeToken(base);
         if (norm.length < 3 ||
-            PlatformParsers.matchesInstalledIdentifier(base, installedNorms)) {
+            PlatformParsers.matchesInstalledIdentifier(base, installedNorms) ||
+            settings.isWhitelisted(entry.path, name: base) ||
+            settings.isAssociatedWithInstalledApp(entry.path, installedApps)) {
           continue;
         }
 
-        final size = await IoFileUtils.calculateEntitySize(
-          entry.path,
-          maxFiles: 1500,
-        );
-        if (size == 0) continue;
+        if (settings.scanVendorSubfolders) {
+          bool hasInstalledChild = false;
+          final children = await _listImmediateChildPaths(entry.path);
+          for (final childPath in children) {
+            final childBase = FormatUtils.basename(childPath);
+            if (childBase.startsWith('.')) continue;
+            if (PlatformParsers.matchesInstalledIdentifier(
+              childBase,
+              installedNorms,
+            )) {
+              hasInstalledChild = true;
+              break;
+            }
+          }
+          if (hasInstalledChild) continue;
+        }
 
-        final stat = await FileStat.stat(entry.path);
         final groupKey = FormatUtils.normalizeToken(
           PlatformParsers.stripVersionAndChannelSuffix(base),
         );
         final key = groupKey.length >= 3 ? groupKey : norm;
-        titles.putIfAbsent(key, () => base);
-        grouped.putIfAbsent(key, () => []).add(
-              AppDataItem(
-                id: entry.path,
-                name: base,
-                path: entry.path,
-                category: t.category,
-                sizeBytes: size,
-                lastModified: stat.modified,
-                isDirectory: stat.type == FileSystemEntityType.directory,
-                description:
-                    'Orphaned directory not matching any installed Windows program',
-                selected: false,
-              ),
-            );
+        pendingCandidates.add((
+          path: entry.path,
+          base: base,
+          key: key,
+          category: t.category,
+        ));
       }
+    }
+
+    final batchSizes = await IoFileUtils.calculateBatchSizes(
+      pendingCandidates.map((c) => c.path).toList(),
+      maxFilesPerFallback: 1500,
+    );
+
+    for (final c in pendingCandidates) {
+      final size = batchSizes[c.path] ?? 0;
+      if (size == 0) continue;
+      final stat = await FileStat.stat(c.path);
+      titles.putIfAbsent(c.key, () => c.base);
+      grouped.putIfAbsent(c.key, () => []).add(
+            AppDataItem(
+              id: c.path,
+              name: c.base,
+              path: c.path,
+              category: c.category,
+              sizeBytes: size,
+              lastModified: stat.modified,
+              isDirectory: stat.type == FileSystemEntityType.directory,
+              description:
+                  'Orphaned directory not matching any installed Windows program',
+              selected: false,
+            ),
+          );
     }
 
     // 2. Scan HKCU\Software for orphaned registry keys
@@ -661,12 +758,14 @@ $results | ConvertTo-Json -Compress
             continue;
           }
           final norm = FormatUtils.normalizeToken(sub);
+          final keyPath = 'HKCU\\Software\\$sub';
           if (norm.length < 3 ||
-              PlatformParsers.matchesInstalledIdentifier(sub, installedNorms)) {
+              PlatformParsers.matchesInstalledIdentifier(sub, installedNorms) ||
+              settings.isWhitelisted(keyPath, name: sub) ||
+              settings.isAssociatedWithInstalledApp(keyPath, installedApps)) {
             continue;
           }
 
-          final keyPath = 'HKCU\\Software\\$sub';
           final info = await _inspectRegistryKey(keyPath);
           if (!info.exists || info.valueCount <= 1) continue;
 

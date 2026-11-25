@@ -403,3 +403,212 @@ class OperationLogEntry {
     );
   }
 }
+
+/// User-defined mapping associating a leftover directory, file, or Registry key
+/// with a specific installed application.
+class CustomAppAssociation {
+  final String path;
+  final String label;
+  final DataCategory category;
+  final String appId;
+  final String appIdentifier;
+  final String appName;
+
+  const CustomAppAssociation({
+    required this.path,
+    required this.label,
+    required this.category,
+    required this.appId,
+    required this.appIdentifier,
+    required this.appName,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'path': path,
+        'label': label,
+        'category': category.name,
+        'appId': appId,
+        'appIdentifier': appIdentifier,
+        'appName': appName,
+      };
+
+  factory CustomAppAssociation.fromJson(Map<String, dynamic> json) {
+    final catName = json['category']?.toString() ?? '';
+    final cat = DataCategory.values.firstWhere(
+      (c) => c.name == catName,
+      orElse: () => DataCategory.appData,
+    );
+    return CustomAppAssociation(
+      path: json['path']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      category: cat,
+      appId: json['appId']?.toString() ?? '',
+      appIdentifier: json['appIdentifier']?.toString() ?? '',
+      appName: json['appName']?.toString() ?? '',
+    );
+  }
+}
+
+/// Persistent user preferences, custom whitelist rules, and manual app associations.
+class AppCleanerSettings {
+  /// Inspect 1-level subfolders inside company/vendor folders
+  /// (e.g. `Softdeluxe/Free Download Manager` or `Google/Chrome`).
+  final bool scanVendorSubfolders;
+
+  /// Default deletion mode in confirmation dialogs (`true` = Move to System Trash).
+  final bool defaultMoveToTrash;
+
+  /// Automatically start scanning Orphaned Leftovers when opening the tab if empty.
+  final bool autoScanOrphansOnOpen;
+
+  /// Expand Orphaned Leftover group cards by default (`false` = collapsed by default).
+  final bool expandOrphanCardsByDefault;
+
+  /// Include System Apps in the initial Installed Apps filter on launch.
+  final bool includeSystemAppsByDefault;
+
+  /// User-defined whitelist rules (exact paths or case-insensitive folder/identifier names).
+  final List<String> customWhitelist;
+
+  /// User-defined manual associations linking leftover paths to installed apps.
+  final List<CustomAppAssociation> customAssociations;
+
+  const AppCleanerSettings({
+    this.scanVendorSubfolders = true,
+    this.defaultMoveToTrash = true,
+    this.autoScanOrphansOnOpen = true,
+    this.expandOrphanCardsByDefault = false,
+    this.includeSystemAppsByDefault = false,
+    this.customWhitelist = const [],
+    this.customAssociations = const [],
+  });
+
+  AppCleanerSettings copyWith({
+    bool? scanVendorSubfolders,
+    bool? defaultMoveToTrash,
+    bool? autoScanOrphansOnOpen,
+    bool? expandOrphanCardsByDefault,
+    bool? includeSystemAppsByDefault,
+    List<String>? customWhitelist,
+    List<CustomAppAssociation>? customAssociations,
+  }) {
+    return AppCleanerSettings(
+      scanVendorSubfolders: scanVendorSubfolders ?? this.scanVendorSubfolders,
+      defaultMoveToTrash: defaultMoveToTrash ?? this.defaultMoveToTrash,
+      autoScanOrphansOnOpen:
+          autoScanOrphansOnOpen ?? this.autoScanOrphansOnOpen,
+      expandOrphanCardsByDefault:
+          expandOrphanCardsByDefault ?? this.expandOrphanCardsByDefault,
+      includeSystemAppsByDefault:
+          includeSystemAppsByDefault ?? this.includeSystemAppsByDefault,
+      customWhitelist: customWhitelist ?? this.customWhitelist,
+      customAssociations: customAssociations ?? this.customAssociations,
+    );
+  }
+
+  /// Checks whether [path], [name], or [identifier] matches any custom whitelist rule.
+  bool isWhitelisted(
+    String path, {
+    String? name,
+    String? identifier,
+  }) {
+    if (customWhitelist.isEmpty) return false;
+    final normPath = path.trim().replaceAll(r'\', '/').toLowerCase();
+    final pathBase = normPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? '';
+    final normName = name?.trim().toLowerCase() ?? '';
+    final normId = identifier?.trim().toLowerCase() ?? '';
+
+    for (final rawRule in customWhitelist) {
+      final rule = rawRule.trim().replaceAll(r'\', '/').toLowerCase();
+      if (rule.isEmpty) continue;
+      if (normPath == rule ||
+          (normPath.isNotEmpty && normPath.startsWith('$rule/')) ||
+          pathBase == rule ||
+          (normName.isNotEmpty && normName == rule) ||
+          (normId.isNotEmpty && normId == rule)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Returns all manual associations targeting [app].
+  List<CustomAppAssociation> associationsForApp(InstalledApp app) {
+    if (customAssociations.isEmpty) return const [];
+    final appIdLower = app.identifier.trim().toLowerCase();
+    final appNameLower = app.name.trim().toLowerCase();
+    return customAssociations.where((a) {
+      if (a.appId == app.id) return true;
+      if (appIdLower.isNotEmpty &&
+          a.appIdentifier.trim().toLowerCase() == appIdLower) {
+        return true;
+      }
+      return a.appName.trim().toLowerCase() == appNameLower;
+    }).toList();
+  }
+
+  /// Returns `true` if [path] is manually associated with an app that is
+  /// currently present in [installedApps].
+  bool isAssociatedWithInstalledApp(
+    String path,
+    List<InstalledApp> installedApps,
+  ) {
+    if (customAssociations.isEmpty) return false;
+    final normPath = path.trim().replaceAll(r'\', '/').toLowerCase();
+    for (final assoc in customAssociations) {
+      final assocPath = assoc.path.trim().replaceAll(r'\', '/').toLowerCase();
+      if (assocPath.isEmpty) continue;
+      final pathMatches = normPath == assocPath ||
+          normPath.startsWith('$assocPath/') ||
+          assocPath.startsWith('$normPath/');
+      if (!pathMatches) continue;
+
+      final appStillInstalled = installedApps.any(
+        (app) =>
+            app.id == assoc.appId ||
+            (app.identifier.isNotEmpty &&
+                app.identifier.toLowerCase() ==
+                    assoc.appIdentifier.toLowerCase()) ||
+            app.name.toLowerCase() == assoc.appName.toLowerCase(),
+      );
+      if (appStillInstalled) return true;
+    }
+    return false;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'scanVendorSubfolders': scanVendorSubfolders,
+        'defaultMoveToTrash': defaultMoveToTrash,
+        'autoScanOrphansOnOpen': autoScanOrphansOnOpen,
+        'expandOrphanCardsByDefault': expandOrphanCardsByDefault,
+        'includeSystemAppsByDefault': includeSystemAppsByDefault,
+        'customWhitelist': customWhitelist,
+        'customAssociations':
+            customAssociations.map((a) => a.toJson()).toList(),
+      };
+
+  factory AppCleanerSettings.fromJson(Map<String, dynamic> json) {
+    return AppCleanerSettings(
+      scanVendorSubfolders: json['scanVendorSubfolders'] != false,
+      defaultMoveToTrash: json['defaultMoveToTrash'] != false,
+      autoScanOrphansOnOpen: json['autoScanOrphansOnOpen'] != false,
+      expandOrphanCardsByDefault: json['expandOrphanCardsByDefault'] == true,
+      includeSystemAppsByDefault: json['includeSystemAppsByDefault'] == true,
+      customWhitelist: (json['customWhitelist'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .where((s) => s.trim().isNotEmpty)
+              .toList() ??
+          const [],
+      customAssociations: (json['customAssociations'] as List<dynamic>?)
+              ?.whereType<Map>()
+              .map(
+                (m) => CustomAppAssociation.fromJson(
+                  m.cast<String, dynamic>(),
+                ),
+              )
+              .where((a) => a.path.isNotEmpty)
+              .toList() ??
+          const [],
+    );
+  }
+}

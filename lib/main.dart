@@ -6,6 +6,7 @@ import 'services/app_cleaner_service.dart';
 import 'utils/format_utils.dart';
 import 'widgets/app_detail_panel.dart';
 import 'widgets/orphan_leftovers_view.dart';
+import 'widgets/settings_view.dart';
 import 'widgets/shared_badges.dart';
 import 'widgets/uninstall_confirm_dialog.dart';
 
@@ -18,7 +19,8 @@ void main() {
 enum NavigationSection {
   apps,
   orphanLeftovers,
-  operationLogs;
+  operationLogs,
+  settings;
 }
 
 /// Filter for User Installed Apps vs System Apps.
@@ -106,11 +108,13 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
   AppOriginFilter _originFilter = AppOriginFilter.userOnly;
   AppSortField _sortField = AppSortField.name;
   String _searchQuery = '';
+  final TextEditingController _appSearchController = TextEditingController();
 
   List<InstalledApp> _apps = [];
   InstalledApp? _selectedApp;
   List<OrphanLeftoverGroup> _orphanGroups = [];
   final List<OperationLogEntry> _operationLogs = [];
+  AppCleanerSettings _settings = const AppCleanerSettings();
 
   bool _isScanningApps = false;
   bool _isScanningSelectedAppData = false;
@@ -124,8 +128,149 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
   void initState() {
     super.initState();
     _service = widget.service ?? AppCleanerService();
+    _loadStartupState();
+  }
+
+  @override
+  void dispose() {
+    _appSearchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadStartupState() async {
+    final loadedSettings = await _service.loadSettings();
+    if (mounted) {
+      setState(() {
+        _settings = loadedSettings;
+        if (loadedSettings.includeSystemAppsByDefault) {
+          _originFilter = AppOriginFilter.all;
+        }
+      });
+    }
     _loadPersistedHistory();
-    _loadInitialScan();
+    await _loadInitialScan();
+  }
+
+  void _handleUpdateSettings(AppCleanerSettings nextSettings) {
+    final prevSubfolder = _settings.scanVendorSubfolders;
+    final prevWhitelistLen = _settings.customWhitelist.length;
+    final prevAssocLen = _settings.customAssociations.length;
+    setState(() {
+      _settings = nextSettings;
+      if (prevSubfolder != nextSettings.scanVendorSubfolders ||
+          prevWhitelistLen != nextSettings.customWhitelist.length ||
+          prevAssocLen != nextSettings.customAssociations.length) {
+        for (final app in _apps) {
+          app.dataScanned = false;
+        }
+      }
+    });
+    _service.saveSettings(nextSettings);
+    if (_selectedApp != null && !_selectedApp!.dataScanned) {
+      _selectApp(_selectedApp!, forceRescan: true);
+    }
+  }
+
+  void _handleAssociateOrphanWithApp(
+    OrphanLeftoverGroup group,
+    InstalledApp targetApp, {
+    AppDataItem? singleItem,
+  }) {
+    final targetItems =
+        singleItem != null ? [singleItem] : List<AppDataItem>.from(group.items);
+    if (targetItems.isEmpty) return;
+
+    final nextAssocs = List<CustomAppAssociation>.from(
+      _settings.customAssociations,
+    );
+    for (final item in targetItems) {
+      nextAssocs.removeWhere(
+        (a) => a.path.toLowerCase() == item.path.toLowerCase(),
+      );
+      nextAssocs.insert(
+        0,
+        CustomAppAssociation(
+          path: item.path,
+          label: item.name,
+          category: item.category,
+          appId: targetApp.id,
+          appIdentifier: targetApp.identifier,
+          appName: targetApp.name,
+        ),
+      );
+      if (!targetApp.dataItems.any(
+        (d) => d.path.toLowerCase() == item.path.toLowerCase(),
+      )) {
+        targetApp.dataItems.add(
+          AppDataItem(
+            id: item.id,
+            name: item.name,
+            path: item.path,
+            category: item.category,
+            sizeBytes: item.sizeBytes,
+            lastModified: item.lastModified,
+            isDirectory: item.isDirectory,
+            description: 'Manually associated with ${targetApp.name}',
+            selected: true,
+          ),
+        );
+      }
+    }
+
+    final updatedSettings = _settings.copyWith(customAssociations: nextAssocs);
+    setState(() {
+      _settings = updatedSettings;
+      if (singleItem != null) {
+        group.items.remove(singleItem);
+        if (group.items.isEmpty) {
+          _orphanGroups.remove(group);
+        }
+      } else {
+        _orphanGroups.remove(group);
+      }
+    });
+    _service.saveSettings(updatedSettings);
+    _showSnack(
+      'Associated "${singleItem?.name ?? group.suspectedAppName}" with ${targetApp.name}.',
+      tone: CapsuleToastTone.success,
+    );
+  }
+
+  void _handleAddOrphanToWhitelist(
+    OrphanLeftoverGroup group, {
+    AppDataItem? singleItem,
+  }) {
+    final targetItems =
+        singleItem != null ? [singleItem] : List<AppDataItem>.from(group.items);
+    if (targetItems.isEmpty) return;
+
+    final nextWhitelist = List<String>.from(_settings.customWhitelist);
+    for (final item in targetItems) {
+      final exists = nextWhitelist.any(
+        (r) => r.toLowerCase() == item.path.toLowerCase(),
+      );
+      if (!exists) {
+        nextWhitelist.insert(0, item.path);
+      }
+    }
+
+    final updatedSettings = _settings.copyWith(customWhitelist: nextWhitelist);
+    setState(() {
+      _settings = updatedSettings;
+      if (singleItem != null) {
+        group.items.remove(singleItem);
+        if (group.items.isEmpty) {
+          _orphanGroups.remove(group);
+        }
+      } else {
+        _orphanGroups.remove(group);
+      }
+    });
+    _service.saveSettings(updatedSettings);
+    _showSnack(
+      'Added "${singleItem?.name ?? group.suspectedAppName}" to whitelist.',
+      tone: CapsuleToastTone.success,
+    );
   }
 
   Future<void> _loadPersistedHistory() async {
@@ -218,7 +363,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     if (!app.dataScanned || forceRescan) {
       setState(() => _isScanningSelectedAppData = true);
       try {
-        await _service.ensureAppDataScanned(app);
+        await _service.ensureAppDataScanned(app, settings: _settings);
       } finally {
         if (mounted) {
           setState(() => _isScanningSelectedAppData = false);
@@ -241,12 +386,19 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       _batchScannedCount = 0;
     });
 
-    for (var i = 0; i < targets.length; i++) {
+    const batchConcurrency = 4;
+    for (var i = 0; i < targets.length; i += batchConcurrency) {
       if (!mounted) return;
-      await _service.ensureAppDataScanned(targets[i]);
+      final chunk = targets.sublist(
+        i,
+        (i + batchConcurrency).clamp(0, targets.length),
+      );
+      await Future.wait(
+        chunk.map((t) => _service.ensureAppDataScanned(t, settings: _settings)),
+      );
       if (!mounted) return;
       setState(() {
-        _batchScannedCount = i + 1;
+        _batchScannedCount = (i + chunk.length).clamp(0, targets.length);
       });
     }
 
@@ -268,7 +420,10 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
           filterPlatform: _webDebugPlatformFilter,
         );
       }
-      final groups = await _service.scanOrphanedLeftovers(_apps);
+      final groups = await _service.scanOrphanedLeftovers(
+        _apps,
+        settings: _settings,
+      );
       // Always start orphaned leftovers deselected so users explicitly opt in.
       for (final group in groups) {
         for (final item in group.items) {
@@ -291,7 +446,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     final cacheBytes = app.cacheSizeBytes;
     if (cacheBytes == 0) return;
 
-    bool moveToTrash = true;
+    bool moveToTrash = _settings.defaultMoveToTrash;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -353,7 +508,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     final selectedCount = app.dataItems.where((d) => d.selected).length;
     if (selectedCount == 0) return;
 
-    bool moveToTrash = true;
+    bool moveToTrash = _settings.defaultMoveToTrash;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -421,7 +576,10 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
   Future<void> _handleUninstallApp(InstalledApp app) async {
     final choices = await showDialog<UninstallDialogChoices>(
       context: context,
-      builder: (ctx) => UninstallConfirmDialog(app: app),
+      builder: (ctx) => UninstallConfirmDialog(
+        app: app,
+        initialMoveToTrash: _settings.defaultMoveToTrash,
+      ),
     );
     if (choices == null || !mounted) return;
 
@@ -457,7 +615,7 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
     );
     if (selectedCount == 0) return;
 
-    bool moveToTrash = true;
+    bool moveToTrash = _settings.defaultMoveToTrash;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -705,7 +863,9 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
                 ? 'Scan files & Registry keys'
                 : '${_orphanGroups.length} leftover groups found',
             onTapExtra: () {
-              if (_orphanGroups.isEmpty && !_isScanningOrphans) {
+              if (_settings.autoScanOrphansOnOpen &&
+                  _orphanGroups.isEmpty &&
+                  !_isScanningOrphans) {
                 _scanOrphanLeftovers();
               }
             },
@@ -716,6 +876,16 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
             title: 'Activity History',
             subtitle:
                 'Freed ${FormatUtils.formatBytes(_totalFreedSessionBytes)}',
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Divider(height: 1),
+          ),
+          _buildSidebarNavItem(
+            section: NavigationSection.settings,
+            icon: Icons.settings_rounded,
+            title: 'Settings',
+            subtitle: 'Scan depth, whitelist & about',
           ),
 
           const Spacer(),
@@ -878,7 +1048,9 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
             icon: Icons.auto_delete_rounded,
             tooltip: 'Orphaned Leftovers',
             onTapExtra: () {
-              if (_orphanGroups.isEmpty && !_isScanningOrphans) {
+              if (_settings.autoScanOrphansOnOpen &&
+                  _orphanGroups.isEmpty &&
+                  !_isScanningOrphans) {
                 _scanOrphanLeftovers();
               }
             },
@@ -888,6 +1060,15 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
             icon: Icons.history_rounded,
             tooltip:
                 'Activity History (Freed ${FormatUtils.formatBytes(_totalFreedSessionBytes)})',
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Divider(height: 1),
+          ),
+          _buildCompactRailItem(
+            section: NavigationSection.settings,
+            icon: Icons.settings_rounded,
+            tooltip: 'Settings & Whitelist',
           ),
           const Spacer(),
           Tooltip(
@@ -1059,14 +1240,26 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
       case NavigationSection.orphanLeftovers:
         return OrphanLeftoversView(
           orphanGroups: _orphanGroups,
+          installedApps: _apps,
           isScanning: _isScanningOrphans,
+          expandCardsByDefault: _settings.expandOrphanCardsByDefault,
           onRescan: _scanOrphanLeftovers,
           onCleanSelected: _handleCleanSelectedOrphans,
           onRevealPath: _service.revealInFileManager,
           onSelectionChanged: () => setState(() {}),
+          onAssociateWithApp: _handleAssociateOrphanWithApp,
+          onAddToWhitelist: _handleAddOrphanToWhitelist,
         );
       case NavigationSection.operationLogs:
         return _buildOperationLogsView(context);
+      case NavigationSection.settings:
+        return SettingsView(
+          settings: _settings,
+          builtInWhitelist: _service.getBuiltInWhitelist(),
+          configDirectoryPath: _service.getConfigDirectoryPath(),
+          onUpdateSettings: _handleUpdateSettings,
+          onRevealPath: _service.revealInFileManager,
+        );
     }
   }
 
@@ -1195,10 +1388,24 @@ class _AppCleanerHomePageState extends State<AppCleanerHomePage> {
 
                         // Search Bar
                         TextField(
+                          controller: _appSearchController,
                           decoration: InputDecoration(
                             hintText:
                                 'Search by app name, Bundle ID, or package...',
                             prefixIcon: const Icon(Icons.search, size: 19),
+                            suffixIcon: _searchQuery.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: 'Clear Search',
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 17,
+                                    ),
+                                    onPressed: () {
+                                      _appSearchController.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  ),
                             isDense: true,
                             filled: true,
                             fillColor: colorScheme.surfaceContainerLow,

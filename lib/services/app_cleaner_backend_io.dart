@@ -47,29 +47,103 @@ class AppCleanerPlatformBackend {
     return apps;
   }
 
-  Future<void> ensureAppDataScanned(InstalledApp app) async {
+  Future<void> ensureAppDataScanned(
+    InstalledApp app, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
+    List<AppDataItem> items = app.dataItems;
     if (app.platform == DesktopPlatformType.macos && Platform.isMacOS) {
-      app.dataItems = await macScanner.scanAppDataItems(app);
+      items = await macScanner.scanAppDataItems(
+        app,
+        scanVendorSubfolders: settings.scanVendorSubfolders,
+      );
     } else if (app.platform == DesktopPlatformType.linux && Platform.isLinux) {
-      app.dataItems = await linuxScanner.scanAppDataItems(app);
+      items = await linuxScanner.scanAppDataItems(
+        app,
+        scanVendorSubfolders: settings.scanVendorSubfolders,
+      );
       app.linuxDependencies =
           await linuxDependencyAnalyzer.analyzeDependencies(app);
     } else if (app.platform == DesktopPlatformType.windows &&
         Platform.isWindows) {
-      app.dataItems = await windowsScanner.scanAppDataItems(app);
+      items = await windowsScanner.scanAppDataItems(
+        app,
+        scanVendorSubfolders: settings.scanVendorSubfolders,
+      );
     }
+
+    // Remove any user-whitelisted paths/names
+    items.removeWhere(
+      (item) => settings.isWhitelisted(item.path, name: item.name),
+    );
+
+    // Inject manual associations configured by the user for this app
+    final existingPaths = items.map((e) => e.path.toLowerCase()).toSet();
+    for (final assoc in settings.associationsForApp(app)) {
+      if (settings.isWhitelisted(assoc.path, name: assoc.label)) continue;
+      if (!existingPaths.add(assoc.path.toLowerCase())) continue;
+
+      if (assoc.category == DataCategory.registry) {
+        items.add(
+          AppDataItem(
+            id: 'reg:${assoc.path}',
+            name: assoc.label,
+            path: assoc.path,
+            category: DataCategory.registry,
+            sizeBytes: 16 * 1024,
+            isDirectory: false,
+            description: 'Manually associated Registry key',
+            selected: true,
+          ),
+        );
+      } else {
+        final type =
+            await FileSystemEntity.type(assoc.path, followLinks: false);
+        if (type != FileSystemEntityType.notFound) {
+          final size =
+              await IoFileUtils.calculateEntitySize(assoc.path, maxFiles: 3000);
+          final modified = await IoFileUtils.getLastModified(assoc.path);
+          items.add(
+            AppDataItem(
+              id: assoc.path,
+              name: assoc.label,
+              path: assoc.path,
+              category: assoc.category,
+              sizeBytes: size,
+              lastModified: modified,
+              isDirectory: type == FileSystemEntityType.directory,
+              description: 'Manually associated with ${app.name}',
+              selected: true,
+            ),
+          );
+        }
+      }
+    }
+
+    items.sort((a, b) => b.sizeBytes.compareTo(a.sizeBytes));
+    app.dataItems = items;
     app.dataScanned = true;
   }
 
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     if (Platform.isMacOS) {
-      return macScanner.scanOrphanedLeftovers(installedApps);
+      return macScanner.scanOrphanedLeftovers(
+        installedApps,
+        settings: settings,
+      );
     } else if (Platform.isLinux) {
-      return linuxScanner.scanOrphanedLeftovers(installedApps);
+      return linuxScanner.scanOrphanedLeftovers(
+        installedApps,
+        settings: settings,
+      );
     } else if (Platform.isWindows) {
-      return windowsScanner.scanOrphanedLeftovers(installedApps);
+      return windowsScanner.scanOrphanedLeftovers(
+        installedApps,
+        settings: settings,
+      );
     }
     return [];
   }
@@ -235,6 +309,7 @@ class AppCleanerPlatformBackend {
       appRemoved = await _uninstallLinuxApp(
         app: app,
         selectedDependencies: selectedDeps,
+        moveToTrash: moveToTrash,
         logs: logs,
         removedPackages: removedPackages,
       );
@@ -320,26 +395,53 @@ class AppCleanerPlatformBackend {
 
   Future<bool> terminateRunningApp(InstalledApp app) async {
     if (app.isSelfApp) return false;
+    const blockedGenericExecutables = {
+      'sh',
+      'bash',
+      'zsh',
+      'fish',
+      'env',
+      'python',
+      'python3',
+      'java',
+      'node',
+      'electron',
+      'cmd.exe',
+      'powershell.exe',
+      'pwsh.exe',
+    };
+    final exeName = FormatUtils.basename(app.executablePath);
+    final isSafeExeName = exeName.isNotEmpty &&
+        !blockedGenericExecutables.contains(exeName.toLowerCase());
+
     try {
       if (Platform.isMacOS) {
-        final exeName = FormatUtils.basename(app.executablePath);
-        final res = await Process.run('pkill', ['-f', app.installPath]);
-        if (res.exitCode != 0 && exeName.isNotEmpty) {
+        if (app.installPath.endsWith('.app')) {
+          final res = await Process.run('pkill', ['-f', app.installPath]);
+          if (res.exitCode == 0) return true;
+        }
+        if (isSafeExeName) {
           await Process.run('killall', [exeName]);
+          return true;
         }
-        return true;
       } else if (Platform.isLinux) {
-        final exeName = FormatUtils.basename(app.executablePath);
-        if (exeName.isNotEmpty) {
-          await Process.run('pkill', ['-f', exeName]);
+        if (app.executablePath.startsWith('/') &&
+            app.executablePath.length > 5 &&
+            isSafeExeName) {
+          final res = await Process.run('pkill', ['-f', app.executablePath]);
+          if (res.exitCode == 0) return true;
         }
-        return true;
+        if (isSafeExeName) {
+          // Use `-x` (exact process name match) instead of `-f` to avoid
+          // accidentally matching substrings in unrelated command lines.
+          await Process.run('pkill', ['-x', exeName]);
+          return true;
+        }
       } else if (Platform.isWindows) {
-        final exeName = FormatUtils.basename(app.executablePath);
-        if (exeName.isNotEmpty) {
+        if (isSafeExeName) {
           await Process.run('taskkill', ['/F', '/IM', exeName]);
+          return true;
         }
-        return true;
       }
     } catch (_) {}
     return false;
@@ -369,11 +471,43 @@ class AppCleanerPlatformBackend {
         );
         return;
       }
+
+      final isAppConfigDir = path == IoFileUtils.getAppConfigDirPath();
+      if (isAppConfigDir) {
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        if (Platform.isMacOS) {
+          await Process.run('open', [path]);
+        } else if (Platform.isLinux) {
+          await Process.run('xdg-open', [path]);
+        } else if (Platform.isWindows) {
+          await Process.run('explorer.exe', [path]);
+        }
+        return;
+      }
+
       if (Platform.isMacOS) {
         await Process.run('open', ['-R', path]);
       } else if (Platform.isLinux) {
-        final parent = File(path).parent.path;
-        await Process.run('xdg-open', [parent]);
+        final normalized = path.length > 1 && path.endsWith('/')
+            ? path.substring(0, path.length - 1)
+            : path;
+        final uri = Uri.file(normalized).toString();
+        final dbusRes = await Process.run('dbus-send', [
+          '--session',
+          '--dest=org.freedesktop.FileManager1',
+          '--type=method_call',
+          '/org/freedesktop/FileManager1',
+          'org.freedesktop.FileManager1.ShowItems',
+          'array:string:$uri',
+          'string:',
+        ]);
+        if (dbusRes.exitCode != 0) {
+          final parent = File(normalized).parent.path;
+          await Process.run('xdg-open', [parent]);
+        }
       } else if (Platform.isWindows) {
         await Process.run('explorer.exe', ['/select,', path]);
       }
@@ -407,27 +541,38 @@ class AppCleanerPlatformBackend {
     if (!await Directory(path).exists()) return false;
 
     if (moveToTrash) {
-      final trashDir = '${Platform.environment['HOME'] ?? ''}/.Trash';
-      if (await Directory(trashDir).exists()) {
-        final baseName = FormatUtils.basename(path);
-        var destPath = '$trashDir/$baseName';
-        if (await Directory(destPath).exists()) {
-          destPath =
-              '$trashDir/${baseName}_${DateTime.now().millisecondsSinceEpoch}.app';
-        }
-        try {
-          await Directory(path).rename(destPath);
-          logs.add('Moved application bundle to Trash: $destPath');
-          return true;
-        } catch (_) {}
+      final movedDirectly = await _movePathToSystemTrash(path, logs: logs);
+      if (movedDirectly) return true;
+
+      // Root-owned bundles in /Applications may need Administrator privileges
+      // to move into ~/.Trash — never fall through to permanent `rm -rf`!
+      final home = Platform.environment['HOME'] ?? '';
+      final trashDir = '$home/.Trash';
+      final rawName = FormatUtils.basename(path);
+      final stem = rawName.endsWith('.app')
+          ? rawName.substring(0, rawName.length - 4)
+          : rawName;
+      var destPath = '$trashDir/$rawName';
+      if (await Directory(destPath).exists()) {
+        destPath =
+            '$trashDir/${stem}_${DateTime.now().millisecondsSinceEpoch}.app';
       }
+      try {
+        final escapedSrc = path.replaceAll('"', r'\"');
+        final escapedDst = destPath.replaceAll('"', r'\"');
+        final script =
+            'do shell script "mv -f \\"$escapedSrc\\" \\"$escapedDst\\"" with administrator privileges';
+        final res = await Process.run('osascript', ['-e', script]);
+        if (res.exitCode == 0) {
+          logs.add('Moved application bundle to Trash (elevated): $destPath');
+          return true;
+        }
+      } catch (_) {}
+      return false;
     }
 
-    final ok = await _deleteFileSystemPath(path);
-    if (ok) {
-      logs.add('Permanently deleted application bundle: $path');
-      return true;
-    }
+    final ok = await _deleteFileSystemPath(path, logs: logs);
+    if (ok) return true;
 
     try {
       final escaped = path.replaceAll('"', r'\"');
@@ -435,7 +580,7 @@ class AppCleanerPlatformBackend {
           'do shell script "rm -rf \\"$escaped\\"" with administrator privileges';
       final res = await Process.run('osascript', ['-e', script]);
       if (res.exitCode == 0) {
-        logs.add('Deleted application bundle with administrator privileges: $path');
+        logs.add('Permanently deleted application bundle (elevated): $path');
         return true;
       }
     } catch (_) {}
@@ -446,18 +591,25 @@ class AppCleanerPlatformBackend {
   Future<bool> _uninstallLinuxApp({
     required InstalledApp app,
     required List<LinuxDependencyPackage> selectedDependencies,
+    required bool moveToTrash,
     required List<String> logs,
     required List<String> removedPackages,
   }) async {
     if (app.installSource == InstallSource.appImageOrOpt &&
         app.linuxPackageName == null) {
-      final ok = await _deleteFileSystemPath(app.installPath);
+      final ok = moveToTrash
+          ? await _movePathToSystemTrash(app.installPath, logs: logs)
+          : await _deleteFileSystemPath(app.installPath, logs: logs);
       if (app.executablePath.isNotEmpty &&
+          app.executablePath != app.installPath &&
           app.executablePath
               .startsWith(Platform.environment['HOME'] ?? '/home')) {
-        await _deleteFileSystemPath(app.executablePath);
+        if (moveToTrash) {
+          await _movePathToSystemTrash(app.executablePath, logs: logs);
+        } else {
+          await _deleteFileSystemPath(app.executablePath, logs: logs);
+        }
       }
-      logs.add('Deleted local desktop entry & binary: ${app.installPath}');
       return ok;
     }
 
@@ -559,6 +711,40 @@ class AppCleanerPlatformBackend {
       }
     } catch (_) {}
   }
+
+  Future<AppCleanerSettings> loadSettings() async {
+    try {
+      final file = File(IoFileUtils.getSettingsFilePath());
+      if (!await file.exists()) return const AppCleanerSettings();
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return const AppCleanerSettings();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const AppCleanerSettings();
+      return AppCleanerSettings.fromJson(decoded.cast<String, dynamic>());
+    } catch (_) {
+      return const AppCleanerSettings();
+    }
+  }
+
+  Future<void> saveSettings(AppCleanerSettings settings) async {
+    try {
+      final file = File(IoFileUtils.getSettingsFilePath());
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+      const encoder = JsonEncoder.withIndent('  ');
+      await file.writeAsString(encoder.convert(settings.toJson()));
+    } catch (_) {}
+  }
+
+  List<String> getBuiltInWhitelist() {
+    if (Platform.isMacOS) return MacOsAppScanner.builtInWhitelist;
+    if (Platform.isLinux) return LinuxAppScanner.builtInWhitelist;
+    if (Platform.isWindows) return WindowsAppScanner.builtInWhitelist;
+    return const [];
+  }
+
+  String getConfigDirectoryPath() => IoFileUtils.getAppConfigDirPath();
 
   /// Evicts cached preferences from macOS `cfprefsd` daemon RAM so reinstalled
   /// apps cannot restore deleted `.plist` settings from memory.

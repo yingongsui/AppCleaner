@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional tag name to create/update a GitHub Release (e.g. v1.0.0). Leave empty to only build artifacts.'
+        description: 'Optional tag name to create/update a GitHub Release (e.g. v1.1.0). Leave empty to only build artifacts.'
         required: false
         default: ''
 
@@ -71,7 +71,7 @@ jobs:
         run: |
           VERSION_CLEAN="${RAW_VERSION#v}"
           if [[ ! "${VERSION_CLEAN}" =~ ^[0-9] ]]; then
-            VERSION_CLEAN="1.0.0"
+            VERSION_CLEAN="1.1.0"
           fi
           DMG_NAME="AppCleaner-${VERSION_CLEAN}-macos-arm64.dmg"
 
@@ -144,7 +144,7 @@ jobs:
         run: |
           VERSION_CLEAN="${RAW_VERSION#v}"
           if [[ ! "${VERSION_CLEAN}" =~ ^[0-9] ]]; then
-            VERSION_CLEAN="1.0.0"
+            VERSION_CLEAN="1.1.0"
           fi
           DEB_NAME="AppCleaner-${VERSION_CLEAN}-linux-amd64.deb"
 
@@ -227,9 +227,9 @@ jobs:
         shell: pwsh
         run: |
           $rawVer = "${env:RAW_VERSION}"
-          if ([string]::IsNullOrWhiteSpace($rawVer)) { $rawVer = "1.0.0" }
+          if ([string]::IsNullOrWhiteSpace($rawVer)) { $rawVer = "1.1.0" }
           $verClean = $rawVer.TrimStart('v')
-          if ($verClean -notmatch '^[0-9]') { $verClean = "1.0.0" }
+          if ($verClean -notmatch '^[0-9]') { $verClean = "1.1.0" }
 
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {

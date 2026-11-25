@@ -22,13 +22,17 @@ class AppCleanerService {
         filterPlatform: filterPlatform,
       );
 
-  Future<void> ensureAppDataScanned(InstalledApp app) =>
-      _backend.ensureAppDataScanned(app);
+  Future<void> ensureAppDataScanned(
+    InstalledApp app, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) =>
+      _backend.ensureAppDataScanned(app, settings: settings);
 
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) =>
-      _backend.scanOrphanedLeftovers(installedApps);
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) =>
+      _backend.scanOrphanedLeftovers(installedApps, settings: settings);
 
   Future<CleanActionResult> clearAppData({
     required InstalledApp app,
@@ -80,4 +84,13 @@ class AppCleanerService {
       _backend.saveOperationHistory(entries);
 
   Future<void> clearOperationHistory() => _backend.clearOperationHistory();
+
+  Future<AppCleanerSettings> loadSettings() => _backend.loadSettings();
+
+  Future<void> saveSettings(AppCleanerSettings settings) =>
+      _backend.saveSettings(settings);
+
+  List<String> getBuiltInWhitelist() => _backend.getBuiltInWhitelist();
+
+  String getConfigDirectoryPath() => _backend.getConfigDirectoryPath();
 }

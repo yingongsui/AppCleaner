@@ -3,6 +3,7 @@ import 'package:app_cleaner/models/app_models.dart';
 import 'package:app_cleaner/services/app_cleaner_service.dart';
 import 'package:app_cleaner/utils/format_utils.dart';
 import 'package:app_cleaner/utils/platform_parsers.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -10,6 +11,7 @@ class FakeAppCleanerService extends AppCleanerService {
   final List<InstalledApp> mockApps;
   final List<OrphanLeftoverGroup> mockOrphans;
   List<OperationLogEntry> savedHistory = [];
+  AppCleanerSettings savedSettings = const AppCleanerSettings();
   bool? lastClearMoveToTrash;
   bool? lastOrphanMoveToTrash;
 
@@ -17,6 +19,20 @@ class FakeAppCleanerService extends AppCleanerService {
     required this.mockApps,
     required this.mockOrphans,
   });
+
+  @override
+  Future<AppCleanerSettings> loadSettings() async => savedSettings;
+
+  @override
+  Future<void> saveSettings(AppCleanerSettings settings) async {
+    savedSettings = settings;
+  }
+
+  @override
+  List<String> getBuiltInWhitelist() => const ['icloud', 'webkit', 'systemd'];
+
+  @override
+  String getConfigDirectoryPath() => '/tmp/AppCleaner';
 
   @override
   Future<List<OperationLogEntry>> loadOperationHistory() async {
@@ -41,14 +57,18 @@ class FakeAppCleanerService extends AppCleanerService {
   }
 
   @override
-  Future<void> ensureAppDataScanned(InstalledApp app) async {
+  Future<void> ensureAppDataScanned(
+    InstalledApp app, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     app.dataScanned = true;
   }
 
   @override
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     return List<OrphanLeftoverGroup>.from(mockOrphans);
   }
 
@@ -309,6 +329,49 @@ End-Date: 2026-11-20  10:15:22
         isFalse,
       );
     });
+
+    test('Persists AppCleanerSettings whitelist and manual app associations cleanly',
+        () {
+      const settings = AppCleanerSettings(
+        scanVendorSubfolders: false,
+        customWhitelist: ['/Users/yin/Library/Application Support/KeepMe'],
+        customAssociations: [
+          CustomAppAssociation(
+            path: '/Users/yin/Library/Application Support/Softdeluxe',
+            label: 'Softdeluxe',
+            category: DataCategory.appData,
+            appId: 'app:fdm',
+            appIdentifier: 'org.freedownloadmanager.fdm6',
+            appName: 'Free Download Manager',
+          ),
+        ],
+      );
+      final restored = AppCleanerSettings.fromJson(settings.toJson());
+      expect(restored.scanVendorSubfolders, isFalse);
+      expect(
+        restored.isWhitelisted(
+          '/Users/yin/Library/Application Support/KeepMe/sub',
+        ),
+        isTrue,
+      );
+      final fdm = InstalledApp(
+        id: 'app:fdm',
+        name: 'Free Download Manager',
+        identifier: 'org.freedownloadmanager.fdm6',
+        installPath: '/Applications/Free Download Manager.app',
+        origin: AppOriginType.userInstalled,
+        installSource: InstallSource.appBundle,
+        platform: DesktopPlatformType.macos,
+      );
+      expect(
+        restored.isAssociatedWithInstalledApp(
+          '/Users/yin/Library/Application Support/Softdeluxe',
+          [fdm],
+        ),
+        isTrue,
+      );
+      expect(restored.associationsForApp(fdm).length, 1);
+    });
   });
 
   testWidgets(
@@ -387,7 +450,7 @@ End-Date: 2026-11-20  10:15:22
       id: 'self:appcleaner',
       name: 'AppCleaner',
       identifier: 'com.yin.appcleaner',
-      version: '1.0.0',
+      version: '1.1.0',
       publisher: 'Yin',
       installPath: '/Applications/AppCleaner.app',
       origin: AppOriginType.userInstalled,
@@ -471,7 +534,7 @@ End-Date: 2026-11-20  10:15:22
     expect(find.text('AppCleaner (Self-Locked)'), findsOneWidget);
     expect(find.text('Stop Process'), findsNothing);
     // Detail header card should be top-aligned (near y=0, not vertically centered)
-    final detailVersionTop = tester.getTopLeft(find.text('v1.0.0')).dy;
+    final detailVersionTop = tester.getTopLeft(find.text('v1.1.0')).dy;
     expect(detailVersionTop, lessThan(120));
 
     // 5. Switch to System Apps filter and verify Safari is shown
@@ -480,11 +543,13 @@ End-Date: 2026-11-20  10:15:22
     expect(find.text('Safari'), findsWidgets);
     expect(find.text('System App (Protected)'), findsOneWidget);
 
-    // 6. Switch to Orphaned Leftovers tab, verify default deselected, then Select All & test Trash/Permanent toggle!
+    // 6. Switch to Orphaned Leftovers tab: verify cards collapsed by default & deselected!
     await tester.tap(find.text('Orphaned Leftovers'));
     await tester.pumpAndSettle();
     expect(find.text('OldUninstalledApp'), findsOneWidget);
-    expect(find.text('15.0 MB'), findsWidgets);
+    // Card is collapsed by default: child path is not rendered yet, only group header shows 15.0 MB
+    expect(find.text('15.0 MB'), findsOneWidget);
+    expect(find.textContaining('/tmp/orphan/cache'), findsNothing);
     expect(find.text('Clean Selected (0 items · 0 B)'), findsOneWidget);
 
     await tester.tap(find.text('Select All'));
@@ -506,6 +571,116 @@ End-Date: 2026-11-20  10:15:22
     await tester.tap(find.text('Move to Trash'));
     await tester.pumpAndSettle();
     expect(fakeService.lastOrphanMoveToTrash, isTrue);
+
+    // 7. Navigate to Settings below Activity History and verify options, whitelist & About
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Inspect 1-Level Vendor Subfolders'), findsOneWidget);
+    expect(find.textContaining('Whitelist Rules'), findsOneWidget);
+    expect(find.text('About AppCleaner'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Orphaned Leftovers right-click context menu supports Associate with App and Add to Whitelist',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final fdmApp = InstalledApp(
+      id: 'app:fdm',
+      name: 'Free Download Manager',
+      identifier: 'org.freedownloadmanager.fdm6',
+      installPath: '/Applications/Free Download Manager.app',
+      origin: AppOriginType.userInstalled,
+      installSource: InstallSource.appBundle,
+      platform: DesktopPlatformType.macos,
+      dataScanned: true,
+    );
+
+    final fakeService = FakeAppCleanerService(
+      mockApps: [fdmApp],
+      mockOrphans: [
+        OrphanLeftoverGroup(
+          id: 'softdeluxe',
+          suspectedAppName: 'Softdeluxe',
+          identifier: 'softdeluxe',
+          platform: DesktopPlatformType.macos,
+          confidenceReason: 'No matching application found',
+          items: [
+            AppDataItem(
+              id: '/Users/yin/Library/Application Support/Softdeluxe',
+              name: 'Softdeluxe',
+              path: '/Users/yin/Library/Application Support/Softdeluxe',
+              category: DataCategory.appData,
+              sizeBytes: 556 * 1024,
+            ),
+          ],
+        ),
+        OrphanLeftoverGroup(
+          id: 'customtool',
+          suspectedAppName: 'CustomToolData',
+          identifier: 'customtool',
+          platform: DesktopPlatformType.macos,
+          confidenceReason: 'No matching application found',
+          items: [
+            AppDataItem(
+              id: '/Users/yin/Library/Application Support/CustomToolData',
+              name: 'CustomToolData',
+              path: '/Users/yin/Library/Application Support/CustomToolData',
+              category: DataCategory.appData,
+              sizeBytes: 128 * 1024,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(AppCleanerApp(service: fakeService));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Orphaned Leftovers'));
+    await tester.pumpAndSettle();
+
+    // Right-click Softdeluxe card -> Associate with Free Download Manager
+    await tester.ensureVisible(find.text('Softdeluxe'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.text('Softdeluxe'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Associate "Softdeluxe" with App...'), findsOneWidget);
+    expect(find.text('Add to Whitelist'), findsOneWidget);
+
+    await tester.tap(find.text('Associate "Softdeluxe" with App...'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Free Download Manager').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Softdeluxe'), findsNothing);
+    expect(fakeService.savedSettings.customAssociations.length, 1);
+    expect(
+      fdmApp.dataItems.any((d) => d.name == 'Softdeluxe'),
+      isTrue,
+    );
+
+    // Right-click CustomToolData card -> Add to Whitelist
+    await tester.ensureVisible(find.text('CustomToolData'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.text('CustomToolData'),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add to Whitelist'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CustomToolData'), findsNothing);
+    expect(
+      fakeService.savedSettings.customWhitelist,
+      contains('/Users/yin/Library/Application Support/CustomToolData'),
+    );
   });
 
   testWidgets('Half-screen compact layout renders cleanly without overflow and top-aligns details',
@@ -520,7 +695,7 @@ End-Date: 2026-11-20  10:15:22
           id: 'self:appcleaner',
           name: 'AppCleaner',
           identifier: 'com.yin.appcleaner',
-          version: '1.0.0',
+          version: '1.1.0',
           publisher: 'Yin',
           installPath: '/Applications/AppCleaner.app',
           origin: AppOriginType.userInstalled,
@@ -567,7 +742,7 @@ End-Date: 2026-11-20  10:15:22
     await tester.pumpAndSettle();
 
     // Compact rail is active, detail header sits near the top (top-aligned, not centered)
-    final versionTop = tester.getTopLeft(find.text('v1.0.0')).dy;
+    final versionTop = tester.getTopLeft(find.text('v1.1.0')).dy;
     expect(versionTop, lessThan(120));
 
     // Data item name ('snap/firefox') gets full width instead of wrapping 1 char per line

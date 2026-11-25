@@ -10,10 +10,12 @@ import 'shared_badges.dart';
 /// uninstalling additional libraries that were pulled in when the app was installed.
 class UninstallConfirmDialog extends StatefulWidget {
   final InstalledApp app;
+  final bool initialMoveToTrash;
 
   const UninstallConfirmDialog({
     super.key,
     required this.app,
+    this.initialMoveToTrash = true,
   });
 
   @override
@@ -35,7 +37,7 @@ class UninstallDialogChoices {
 class _UninstallConfirmDialogState extends State<UninstallConfirmDialog> {
   bool _removeSelectedData = true;
   bool _removeSelectedLinuxDeps = true;
-  bool _moveToTrash = true;
+  late bool _moveToTrash = widget.initialMoveToTrash;
 
   @override
   Widget build(BuildContext context) {

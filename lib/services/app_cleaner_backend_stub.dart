@@ -9,6 +9,7 @@ class AppCleanerPlatformBackend {
   List<InstalledApp>? _cachedMockApps;
   List<OrphanLeftoverGroup>? _cachedMockOrphans;
   List<OperationLogEntry> _webHistory = [];
+  AppCleanerSettings _webSettings = const AppCleanerSettings();
 
   Future<List<InstalledApp>> scanInstalledApps({
     DesktopPlatformType? filterPlatform,
@@ -22,15 +23,74 @@ class AppCleanerPlatformBackend {
     return List<InstalledApp>.from(_cachedMockApps!);
   }
 
-  Future<void> ensureAppDataScanned(InstalledApp app) async {
+  Future<void> ensureAppDataScanned(
+    InstalledApp app, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
+    app.dataItems.removeWhere(
+      (item) => settings.isWhitelisted(item.path, name: item.name),
+    );
+    final existingPaths =
+        app.dataItems.map((e) => e.path.toLowerCase()).toSet();
+    for (final assoc in settings.associationsForApp(app)) {
+      if (existingPaths.add(assoc.path.toLowerCase()) &&
+          !settings.isWhitelisted(assoc.path, name: assoc.label)) {
+        app.dataItems.add(
+          AppDataItem(
+            id: assoc.path,
+            name: assoc.label,
+            path: assoc.path,
+            category: assoc.category,
+            sizeBytes: 512 * 1024,
+            isDirectory: assoc.category != DataCategory.registry,
+            description: 'Manually associated with ${app.name}',
+            selected: true,
+          ),
+        );
+      }
+    }
     app.dataScanned = true;
   }
 
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     _cachedMockOrphans ??= WebMockData.buildSampleOrphanGroups();
-    return List<OrphanLeftoverGroup>.from(_cachedMockOrphans!);
+    final filtered = <OrphanLeftoverGroup>[];
+    for (final g in _cachedMockOrphans!) {
+      if (settings.isWhitelisted(
+        g.id,
+        name: g.suspectedAppName,
+        identifier: g.identifier,
+      )) {
+        continue;
+      }
+      final keptItems = g.items
+          .where(
+            (i) =>
+                !settings.isWhitelisted(
+                  i.path,
+                  name: i.name,
+                  identifier: g.identifier,
+                ) &&
+                !settings.isAssociatedWithInstalledApp(i.path, installedApps),
+          )
+          .toList();
+      if (keptItems.isNotEmpty) {
+        filtered.add(
+          OrphanLeftoverGroup(
+            id: g.id,
+            suspectedAppName: g.suspectedAppName,
+            identifier: g.identifier,
+            platform: g.platform,
+            confidenceReason: g.confidenceReason,
+            items: keptItems,
+          ),
+        );
+      }
+    }
+    return filtered;
   }
 
   Future<CleanActionResult> clearAppData({
@@ -254,4 +314,33 @@ class AppCleanerPlatformBackend {
   Future<void> clearOperationHistory() async {
     _webHistory = [];
   }
+
+  Future<AppCleanerSettings> loadSettings() async => _webSettings;
+
+  Future<void> saveSettings(AppCleanerSettings settings) async {
+    _webSettings = settings;
+  }
+
+  List<String> getBuiltInWhitelist() => const [
+        'apple',
+        'caches',
+        'clouddocs',
+        'containers',
+        'dconf',
+        'fontconfig',
+        'gtk-3.0',
+        'gtk-4.0',
+        'icloud',
+        'keyrings',
+        'microsoft',
+        'packages',
+        'pipewire',
+        'preferences',
+        'systemd',
+        'webkit',
+        'windows',
+      ];
+
+  String getConfigDirectoryPath() =>
+      '~/Library/Application Support/AppCleaner (Web Debug Mode)';
 }

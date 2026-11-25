@@ -12,6 +12,29 @@ import 'macos_native_icons.dart';
 class MacOsAppScanner {
   String get _homeDir => Platform.environment['HOME'] ?? '/Users/Shared';
 
+  static List<String> get builtInWhitelist =>
+      _ignoredOrphanNames.toList()..sort();
+
+  final Map<String, ({DateTime fetchedAt, List<String> childPaths})>
+      _vendorSubdirCache = {};
+
+  Future<List<String>> _listImmediateChildPaths(String dirPath) async {
+    final now = DateTime.now();
+    final cached = _vendorSubdirCache[dirPath];
+    if (cached != null &&
+        now.difference(cached.fetchedAt).inSeconds < 20) {
+      return cached.childPaths;
+    }
+    final result = <String>[];
+    try {
+      await for (final child in Directory(dirPath).list(followLinks: false)) {
+        result.add(child.path);
+      }
+    } catch (_) {}
+    _vendorSubdirCache[dirPath] = (fetchedAt: now, childPaths: result);
+    return result;
+  }
+
   static const Set<String> _appleSystemBundleIds = {
     'com.apple.Safari',
     'com.apple.mail',
@@ -273,10 +296,16 @@ class MacOsAppScanner {
       }
     }
 
+    // Precompute all .app bundle sizes in bulk `du -sk` batches (3-4 process calls instead of 100+)
+    final precomputedSizes = await IoFileUtils.calculateBatchSizes(
+      candidates.map((c) => c.path).toList(),
+      maxFilesPerFallback: 2200,
+    );
+
     // Inspect app bundles concurrently in bounded batches for fast startup scanning
     final seenBundleIds = <String>{};
     final apps = <InstalledApp>[];
-    const batchSize = 8;
+    const batchSize = 12;
 
     for (var i = 0; i < candidates.length; i += batchSize) {
       final chunk = candidates.sublist(
@@ -290,6 +319,7 @@ class MacOsAppScanner {
             forceSystem: c.forceSystem,
             caskTokens: caskNames,
             runningProcessOutput: runningProcesses,
+            precomputedSizeBytes: precomputedSizes[c.path],
           ),
         ),
       );
@@ -312,6 +342,7 @@ class MacOsAppScanner {
     required bool forceSystem,
     required Set<String> caskTokens,
     required String runningProcessOutput,
+    int? precomputedSizeBytes,
   }) async {
     final infoPlistPath = '$appPath/Contents/Info.plist';
     final plistFile = File(infoPlistPath);
@@ -381,10 +412,11 @@ class MacOsAppScanner {
         (executableName.length > 3 &&
             runningProcessOutput.contains('/MacOS/$executableName'));
 
-    final appSize = await IoFileUtils.calculateEntitySize(
-      appPath,
-      maxFiles: 2200,
-    );
+    final appSize = precomputedSizeBytes ??
+        await IoFileUtils.calculateEntitySize(
+          appPath,
+          maxFiles: 2200,
+        );
     final iconBytes = isSelf
         ? null
         : await MacOsNativeIconBridge.getAppIconPng(appPath);
@@ -437,7 +469,10 @@ class MacOsAppScanner {
   }
 
   /// Scans all data, cache, config, containers, and launch agents associated with [app].
-  Future<List<AppDataItem>> scanAppDataItems(InstalledApp app) async {
+  Future<List<AppDataItem>> scanAppDataItems(
+    InstalledApp app, {
+    bool scanVendorSubfolders = true,
+  }) async {
     final libraryDir = '$_homeDir/Library';
     final bundleId = app.identifier.trim();
     final bundleIdLower = bundleId.toLowerCase();
@@ -609,7 +644,7 @@ class MacOsAppScanner {
         description: 'XDG configuration directory (~/.config)',
         matchByName: true,
         matchByGroupSuffix: false,
-        scanVendorSubdir: false,
+        scanVendorSubdir: true,
       ),
       // System-wide machine-level preferences & support files
       (
@@ -626,7 +661,7 @@ class MacOsAppScanner {
         description: 'System-wide application support (/Library/Application Support)',
         matchByName: true,
         matchByGroupSuffix: false,
-        scanVendorSubdir: false,
+        scanVendorSubdir: true,
       ),
       (
         dirPath: '/Library/LaunchAgents',
@@ -647,8 +682,9 @@ class MacOsAppScanner {
     Future<void> addMatchedEntry(
       String entryPath,
       DataCategory category,
-      String description,
-    ) async {
+      String description, {
+      String? displayName,
+    }) async {
       if (!foundPaths.add(entryPath)) return;
       final size = await IoFileUtils.calculateEntitySize(
         entryPath,
@@ -659,7 +695,7 @@ class MacOsAppScanner {
       items.add(
         AppDataItem(
           id: entryPath,
-          name: FormatUtils.basename(entryPath),
+          name: displayName ?? FormatUtils.basename(entryPath),
           path: entryPath,
           category: category,
           sizeBytes: size,
@@ -724,26 +760,56 @@ class MacOsAppScanner {
           continue;
         }
 
-        // Check nested <Vendor>/<App> folders (e.g. Application Support/Google/Chrome)
+        // Check 1-level nested <Vendor>/<App> folders (e.g. Softdeluxe/Free Download Manager, Google/Chrome)
         if (target.scanVendorSubdir &&
             entry is Directory &&
-            bundleVendorSegment.length >= 3 &&
-            FormatUtils.normalizeToken(base) ==
-                FormatUtils.normalizeToken(bundleVendorSegment)) {
-          try {
-            await for (final child in entry.list(followLinks: false)) {
-              final childBase = FormatUtils.basename(child.path);
-              final childNorm = FormatUtils.normalizeToken(childBase);
-              if (childNorm.length >= 3 &&
-                  normalizedNameTokens.contains(childNorm)) {
+            !base.startsWith('.') &&
+            !baseLower.startsWith('com.apple.')) {
+          const skipSystemContainers = {
+            'apple',
+            'icloud',
+            'cloudkit',
+            'clouddocs',
+            'knowledge',
+            'metadata',
+            'mobile documents',
+            'mobilesync',
+            'coresimulator',
+            'caches',
+            'containers',
+            'group containers',
+            'webkit',
+            'httpstorages',
+            'keychains',
+            'mail',
+            'messages',
+            'photos',
+          };
+          final shouldInspectVendor = scanVendorSubfolders
+              ? (!skipSystemContainers.contains(baseLower) &&
+                  !base.contains('.'))
+              : (bundleVendorSegment.length >= 3 &&
+                  FormatUtils.normalizeToken(base) ==
+                      FormatUtils.normalizeToken(bundleVendorSegment));
+
+          if (shouldInspectVendor) {
+            final children = await _listImmediateChildPaths(entry.path);
+            for (final childPath in children) {
+              final childBase = FormatUtils.basename(childPath);
+              if (childBase.startsWith('.')) continue;
+              if (PlatformParsers.matchesInstalledIdentifier(
+                childBase,
+                normalizedNameTokens,
+              )) {
                 await addMatchedEntry(
-                  child.path,
+                  childPath,
                   target.category,
                   '${target.description} ($base/$childBase)',
+                  displayName: '$base/$childBase',
                 );
               }
             }
-          } catch (_) {}
+          }
         }
       }
     }
@@ -767,8 +833,9 @@ class MacOsAppScanner {
 
   /// Scans `~/Library` for orphaned leftover files belonging to uninstalled applications.
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     final libraryDir = '$_homeDir/Library';
 
     final installedBundleIds = <String>{};
@@ -892,6 +959,14 @@ class MacOsAppScanner {
       r'^(com|org|io|net|app|dev|me|co|us|de|jp|cn|uk|fr|ru|ch|nl|se|tv|ai)\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$',
     );
 
+    final pendingCandidates = <({
+      String path,
+      String base,
+      String groupKey,
+      String displayName,
+      DataCategory category,
+    })>[];
+
     for (final scanDir in scanDirs) {
       final dir = Directory(scanDir.path);
       if (!await dir.exists()) continue;
@@ -978,18 +1053,36 @@ class MacOsAppScanner {
               )) {
             belongsToInstalled = true;
           }
+
+          // Inspect 1-level vendor subfolders (e.g. Softdeluxe/Free Download Manager)
+          if (!belongsToInstalled &&
+              settings.scanVendorSubfolders &&
+              entry is Directory) {
+            final children = await _listImmediateChildPaths(entry.path);
+            for (final childPath in children) {
+              final childBase = FormatUtils.basename(childPath);
+              if (childBase.startsWith('.')) continue;
+              if (installedBundleIds.contains(childBase.toLowerCase()) ||
+                  PlatformParsers.matchesInstalledIdentifier(
+                    childBase,
+                    installedNormalizedNames,
+                  )) {
+                belongsToInstalled = true;
+                break;
+              }
+            }
+          }
         }
 
-        if (belongsToInstalled) continue;
-
-        final size = await IoFileUtils.calculateEntitySize(
-          entry.path,
-          maxFiles: 1500,
-        );
-        if (size == 0) continue;
-
-        final modified = await IoFileUtils.getLastModified(entry.path);
-        final stat = await FileStat.stat(entry.path);
+        if (belongsToInstalled ||
+            settings.isWhitelisted(
+              entry.path,
+              name: base,
+              identifier: cleanId,
+            ) ||
+            settings.isAssociatedWithInstalledApp(entry.path, installedApps)) {
+          continue;
+        }
 
         String groupKey = cleanLower;
         String displayName = cleanId;
@@ -1002,22 +1095,41 @@ class MacOsAppScanner {
           }
         }
 
-        groupTitles.putIfAbsent(groupKey, () => displayName);
-        groupedItems.putIfAbsent(groupKey, () => []).add(
-              AppDataItem(
-                id: entry.path,
-                name: base,
-                path: entry.path,
-                category: scanDir.category,
-                sizeBytes: size,
-                lastModified: modified,
-                isDirectory: stat.type == FileSystemEntityType.directory,
-                description:
-                    'Orphaned ${scanDir.category.shortLabel} with no matching installed app',
-                selected: false,
-              ),
-            );
+        pendingCandidates.add((
+          path: entry.path,
+          base: base,
+          groupKey: groupKey,
+          displayName: displayName,
+          category: scanDir.category,
+        ));
       }
+    }
+
+    // Compute sizes for all candidate orphans in bulk `du -sk` batches
+    final batchSizes = await IoFileUtils.calculateBatchSizes(
+      pendingCandidates.map((c) => c.path).toList(),
+      maxFilesPerFallback: 1500,
+    );
+
+    for (final c in pendingCandidates) {
+      final size = batchSizes[c.path] ?? 0;
+      if (size == 0) continue;
+      final stat = await FileStat.stat(c.path);
+      groupTitles.putIfAbsent(c.groupKey, () => c.displayName);
+      groupedItems.putIfAbsent(c.groupKey, () => []).add(
+            AppDataItem(
+              id: c.path,
+              name: c.base,
+              path: c.path,
+              category: c.category,
+              sizeBytes: size,
+              lastModified: stat.modified,
+              isDirectory: stat.type == FileSystemEntityType.directory,
+              description:
+                  'Orphaned ${c.category.shortLabel} with no matching installed app',
+              selected: false,
+            ),
+          );
     }
 
     final groups = <OrphanLeftoverGroup>[];

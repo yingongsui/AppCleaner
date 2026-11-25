@@ -20,6 +20,28 @@ class LinuxAppScanner {
   String get _xdgCacheHome =>
       Platform.environment['XDG_CACHE_HOME'] ?? '$_homeDir/.cache';
 
+  static List<String> get builtInWhitelist =>
+      _ignoredLinuxOrphanFolders.toList()..sort();
+
+  final Map<String, ({DateTime fetchedAt, List<String> childPaths})>
+      _vendorSubdirCache = {};
+
+  Future<List<String>> _listImmediateChildPaths(String dirPath) async {
+    final now = DateTime.now();
+    final cached = _vendorSubdirCache[dirPath];
+    if (cached != null && now.difference(cached.fetchedAt).inSeconds < 20) {
+      return cached.childPaths;
+    }
+    final result = <String>[];
+    try {
+      await for (final child in Directory(dirPath).list(followLinks: false)) {
+        result.add(child.path);
+      }
+    } catch (_) {}
+    _vendorSubdirCache[dirPath] = (fetchedAt: now, childPaths: result);
+    return result;
+  }
+
   static const Set<String> _coreSystemPackages = {
     'systemd',
     'gnome-control-center',
@@ -629,7 +651,10 @@ class LinuxAppScanner {
   }
 
   /// Scans all data, config, cache, Flatpak/Snap sandbox data, and autostart items for [app].
-  Future<List<AppDataItem>> scanAppDataItems(InstalledApp app) async {
+  Future<List<AppDataItem>> scanAppDataItems(
+    InstalledApp app, {
+    bool scanVendorSubfolders = true,
+  }) async {
     final items = <AppDataItem>[];
     final seenPaths = <String>{};
 
@@ -642,10 +667,10 @@ class LinuxAppScanner {
         FormatUtils.basename(app.executablePath),
       if (app.name.length >= 3) app.name,
     };
-    final normalizedTokens = tokens
-        .map(FormatUtils.normalizeToken)
-        .where((t) => t.length >= 3)
-        .toSet();
+    final normalizedTokens = <String>{};
+    for (final raw in tokens) {
+      PlatformParsers.addNormalizedAppTokens(normalizedTokens, raw);
+    }
 
     // 1. Flatpak ~/.var/app/<appId>
     if (app.installSource == InstallSource.flatpak ||
@@ -776,6 +801,41 @@ class LinuxAppScanner {
               description: target.description,
             ),
           );
+          continue;
+        }
+
+        // Inspect 1-level vendor subfolders (e.g. ~/.config/Softdeluxe/Free Download Manager)
+        if (scanVendorSubfolders &&
+            entry is Directory &&
+            !base.startsWith('.')) {
+          final children = await _listImmediateChildPaths(entry.path);
+          for (final childPath in children) {
+            final childBase = FormatUtils.basename(childPath);
+            if (childBase.startsWith('.')) continue;
+            final childMatched = tokens.any(
+                  (t) => childBase.toLowerCase() == t.toLowerCase(),
+                ) ||
+                PlatformParsers.matchesInstalledIdentifier(
+                  childBase,
+                  normalizedTokens,
+                );
+            if (childMatched && seenPaths.add(childPath)) {
+              final size = await IoFileUtils.calculateEntitySize(childPath);
+              final stat = await FileStat.stat(childPath);
+              items.add(
+                AppDataItem(
+                  id: childPath,
+                  name: '$base/$childBase',
+                  path: childPath,
+                  category: target.category,
+                  sizeBytes: size,
+                  lastModified: stat.modified,
+                  isDirectory: stat.type == FileSystemEntityType.directory,
+                  description: '${target.description} ($base/$childBase)',
+                ),
+              );
+            }
+          }
         }
       }
     }
@@ -791,8 +851,9 @@ class LinuxAppScanner {
   /// in standard `PATH` directories, while stripping version suffixes (e.g. `LyX-2.4`
   /// -> `lyx`) so active apps and CLI tools are not falsely flagged as leftovers.
   Future<List<OrphanLeftoverGroup>> scanOrphanedLeftovers(
-    List<InstalledApp> installedApps,
-  ) async {
+    List<InstalledApp> installedApps, {
+    AppCleanerSettings settings = const AppCleanerSettings(),
+  }) async {
     final installedNorms = <String>{};
     for (final app in installedApps) {
       for (final token in [
@@ -850,6 +911,13 @@ class LinuxAppScanner {
     final grouped = <String, List<AppDataItem>>{};
     final titles = <String, String>{};
 
+    final pendingCandidates = <({
+      String path,
+      String base,
+      String key,
+      DataCategory category,
+    })>[];
+
     for (final target in scanTargets) {
       final dir = Directory(target.path);
       if (!await dir.exists()) continue;
@@ -876,37 +944,66 @@ class LinuxAppScanner {
 
         final norm = FormatUtils.normalizeToken(base);
         if (norm.length < 3 ||
-            PlatformParsers.matchesInstalledIdentifier(base, installedNorms)) {
+            PlatformParsers.matchesInstalledIdentifier(base, installedNorms) ||
+            settings.isWhitelisted(entry.path, name: base) ||
+            settings.isAssociatedWithInstalledApp(entry.path, installedApps)) {
           continue;
         }
 
-        final size = await IoFileUtils.calculateEntitySize(
-          entry.path,
-          maxFiles: 1500,
-        );
-        if (size == 0) continue;
+        if (settings.scanVendorSubfolders && entry is Directory) {
+          bool hasInstalledChild = false;
+          final children = await _listImmediateChildPaths(entry.path);
+          for (final childPath in children) {
+            final childBase = FormatUtils.basename(childPath);
+            if (childBase.startsWith('.')) continue;
+            if (PlatformParsers.matchesInstalledIdentifier(
+              childBase,
+              installedNorms,
+            )) {
+              hasInstalledChild = true;
+              break;
+            }
+          }
+          if (hasInstalledChild) continue;
+        }
 
-        final stat = await FileStat.stat(entry.path);
         final groupKey = FormatUtils.normalizeToken(
           PlatformParsers.stripVersionAndChannelSuffix(base),
         );
         final key = groupKey.length >= 3 ? groupKey : norm;
-        titles.putIfAbsent(key, () => base);
-        grouped.putIfAbsent(key, () => []).add(
-              AppDataItem(
-                id: entry.path,
-                name: base,
-                path: entry.path,
-                category: target.category,
-                sizeBytes: size,
-                lastModified: stat.modified,
-                isDirectory: stat.type == FileSystemEntityType.directory,
-                description:
-                    'Orphaned directory not matching any installed Linux package or .desktop entry',
-                selected: false,
-              ),
-            );
+        pendingCandidates.add((
+          path: entry.path,
+          base: base,
+          key: key,
+          category: target.category,
+        ));
       }
+    }
+
+    final batchSizes = await IoFileUtils.calculateBatchSizes(
+      pendingCandidates.map((c) => c.path).toList(),
+      maxFilesPerFallback: 1500,
+    );
+
+    for (final c in pendingCandidates) {
+      final size = batchSizes[c.path] ?? 0;
+      if (size == 0) continue;
+      final stat = await FileStat.stat(c.path);
+      titles.putIfAbsent(c.key, () => c.base);
+      grouped.putIfAbsent(c.key, () => []).add(
+            AppDataItem(
+              id: c.path,
+              name: c.base,
+              path: c.path,
+              category: c.category,
+              sizeBytes: size,
+              lastModified: stat.modified,
+              isDirectory: stat.type == FileSystemEntityType.directory,
+              description:
+                  'Orphaned directory not matching any installed Linux package or .desktop entry',
+              selected: false,
+            ),
+          );
     }
 
     final groups = <OrphanLeftoverGroup>[];
